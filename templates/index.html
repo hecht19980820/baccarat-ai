@@ -1,0 +1,57 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI百家樂</title>
+<style>
+body{background:#020617;color:white;font-family:sans-serif;margin:0;padding:0}
+.top{padding:10px;background:#111827;display:flex;gap:10px}
+.grid{display:grid;grid-template-columns:repeat(6,1fr);gap:5px;padding:10px}
+.item{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px}
+.B{background:red}.P{background:blue}.T{background:green}
+.bottom{position:fixed;bottom:0;left:0;right:0;background:#111827;padding:10px;display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+button{padding:15px;border:none;border-radius:10px;font-size:20px}
+</style>
+</head>
+<body>
+
+<div class="top">
+<button onclick="addRoad('B')">莊</button>
+<button onclick="addRoad('T')">和</button>
+<button onclick="addRoad('P')">閒</button>
+</div>
+
+<div class="grid" id="road"></div>
+
+<script>
+async function loadData(){
+const r = await fetch('/api/data')
+const d = await r.json()
+
+const road = document.getElementById('road')
+road.innerHTML=''
+
+d.records.forEach(x=>{
+const div=document.createElement('div')
+div.className='item '+x.result
+div.innerText=x.result
+road.appendChild(div)
+})
+}
+
+async function addRoad(result){
+await fetch('/api/manual',{
+method:'POST',
+headers:{'Content-Type':'application/json'},
+body:JSON.stringify({result})
+})
+loadData()
+}
+
+loadData()
+</script>
+
+</body>
+</html>

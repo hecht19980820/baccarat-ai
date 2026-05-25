@@ -1,0 +1,31 @@
+
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"></head>
+<body style="background:#020617;color:white;font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;">
+
+<div style="background:#111827;padding:30px;border-radius:20px;width:300px;">
+<h2>會員登入</h2>
+<input id="u" placeholder="帳號" style="width:100%;padding:10px;margin-bottom:10px;">
+<input id="p" type="password" placeholder="密碼" style="width:100%;padding:10px;margin-bottom:10px;">
+<button onclick="login()" style="width:100%;padding:10px;">登入</button>
+</div>
+
+<script>
+async function login(){
+const r=await fetch('/api/login',{
+method:'POST',
+headers:{'Content-Type':'application/json'},
+body:JSON.stringify({
+username:document.getElementById('u').value,
+password:document.getElementById('p').value
+})
+})
+const d=await r.json()
+if(d.ok){location='/'}
+else{alert(d.msg)}
+}
+</script>
+
+</body>
+</html>
