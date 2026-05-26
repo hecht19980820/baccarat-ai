@@ -9,7 +9,7 @@
 </head>
 <body>
 <div class="header">
-  <div class="brand">Baccarat AI 玩家端</div>
+  <div class="brand">Baccarat AI 玩家端 v2</div>
   <div class="nav">
     <a class="badge" href="/login">會員登入</a>
     <a class="badge" href="/admin-login">管理後台</a>
@@ -21,7 +21,7 @@
     <div class="card">
       <h2>桌號選擇</h2>
       <div class="row">
-        <select id="source" onchange="loadTable()">
+        <select id="source">
           <option value="DG">DG</option>
           <option value="MT">MT</option>
         </select>
@@ -39,7 +39,7 @@
 
       <h3>手動輸入牌型</h3>
       <div class="row">
-        <input id="pattern" placeholder="例如：0.2.8.0 / 幸運6 / 牌型備註">
+        <input id="pattern" placeholder="例如：0.2.8.0 / 幸運6 / 牌型">
         <select id="manual_result">
           <option value="莊">莊</option>
           <option value="閒">閒</option>
@@ -47,7 +47,7 @@
         </select>
         <button class="btn" onclick="addManual()">手動加入</button>
       </div>
-      <div class="muted">手動輸入會進後台資料與路型分析，但不計算預測次數與命中率。</div>
+      <div class="muted">手動輸入會進後台與AI路型分析，但不計算預測次數與命中率。</div>
 
       <h2>大路盤</h2>
       <div id="road" class="road"></div>
@@ -56,9 +56,11 @@
     <div class="card">
       <h2>AI 建議方向</h2>
       <div class="ai-box">
-        <div>建議：<b id="aiSuggest">觀察</b></div>
-        <div>信心值：<b id="aiConfidence">0%</b></div>
+        <div class="muted">建議</div>
+        <div class="ai-suggest" id="aiSuggest">觀察</div>
+        <div>信心值：<span class="conf" id="aiConfidence">0%</span></div>
         <div>趨勢：<b id="aiTrend">資料不足</b></div>
+        <div>和局率：<b id="tieRate">0%</b>　幸運6率：<b id="luckyRate">0%</b></div>
         <div class="muted" id="aiReason">目前資料不足。</div>
         <div id="tieAlert"></div>
         <div id="luckyAlert"></div>
@@ -75,7 +77,7 @@
         <input id="bet_amount" type="number" placeholder="金額">
         <button class="btn" onclick="saveBet()">紀錄下注</button>
       </div>
-      <p class="muted">這是第一階段可操作版：後台管理先完整可用，AI 先用統計權重版。</p>
+      <p class="muted">第二階段：全站共享資料＋每桌獨立權重＋最近N局趨勢＋和局/幸運6提醒。</p>
     </div>
   </div>
 </div>
@@ -84,7 +86,7 @@
 const DG_TABLES = {{ dg_tables|tojson }};
 const MT_TABLES = {{ mt_tables|tojson }};
 let records = [];
-let currentAI = {suggest:"觀察"};
+let currentAI = {suggest:"觀察", confidence:0, reason:""};
 
 function initTables(){
   const source = document.getElementById("source").value;
@@ -111,6 +113,7 @@ function renderRoad(){
   records.forEach(r=>{
     const d=document.createElement("div");
     d.className=cellClass(r.result);
+    d.title = (r.card_pattern || "") + (r.is_manual ? " / 手動" : "");
     d.textContent=r.result;
     road.appendChild(d);
   });
@@ -121,6 +124,8 @@ function renderAI(ai){
   document.getElementById("aiConfidence").textContent = (ai.confidence || 0) + "%";
   document.getElementById("aiTrend").textContent = ai.trend || "資料不足";
   document.getElementById("aiReason").textContent = ai.reason || "";
+  document.getElementById("tieRate").textContent = (ai.tie_rate || 0) + "%";
+  document.getElementById("luckyRate").textContent = (ai.lucky6_rate || 0) + "%";
   document.getElementById("tieAlert").innerHTML = ai.tie_alert ? '<div class="alert">AI提醒：本桌近期和局機率偏高</div>' : '';
   document.getElementById("luckyAlert").innerHTML = ai.lucky6_alert ? '<div class="alert">AI提醒：本桌幸運6機率偏高</div>' : '';
 }
@@ -140,7 +145,13 @@ async function addResult(result){
   const res=await fetch("/api/add-record",{
     method:"POST",
     headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({source, table_no, result, is_manual:0, prediction_before:prediction, counted_prediction: prediction ? 1 : 0})
+    body:JSON.stringify({
+      source, table_no, result, is_manual:0,
+      prediction_before:prediction,
+      ai_confidence_before: currentAI.confidence || 0,
+      ai_reason_before: currentAI.reason || "",
+      counted_prediction: prediction ? 1 : 0
+    })
   });
   const data=await res.json();
   if(!data.ok){alert(data.error || "失敗"); return;}
