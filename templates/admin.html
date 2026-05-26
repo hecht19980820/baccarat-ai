@@ -1,28 +1,54 @@
-<!doctype html>
-<html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>管理後台</title><style>
-*{box-sizing:border-box}body{margin:0;background:#071429;color:#e9f8ff;font-family:"Microsoft JhengHei",Arial}.layout{display:grid;grid-template-columns:250px 1fr 320px;gap:14px;padding:16px}
-.card{background:#0b2347;border:1px solid #00aaff;border-radius:12px;padding:14px;box-shadow:0 0 18px #007bff55}.head{display:flex;align-items:center;justify-content:space-between;background:#091a34;padding:12px 18px;border-bottom:1px solid #008cff}
-h1{margin:0;font-size:26px}.logo{width:80px;height:80px;border-radius:50%;border:2px solid #00e5ff;display:grid;place-items:center;font-size:32px;font-weight:900;color:#00e5ff;margin:auto}
-.nav{display:grid;gap:8px;margin-top:20px}.nav button,.btn,input,select{background:#0d2855;color:#fff;border:1px solid #159bff;border-radius:8px;padding:10px;font-weight:800}.btn{cursor:pointer}.green{background:#00a86b}.red{background:#ff245a}.tabs{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:12px}.stat{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.big{font-size:38px;color:#00e5ff;font-weight:900}.pred{display:grid;grid-template-columns:1fr 150px 1fr;gap:12px;text-align:center}.circle{width:135px;height:135px;border-radius:50%;border:10px solid #00e5ff;display:grid;place-items:center;margin:auto;font-size:26px;font-weight:900}
-.road{display:grid;grid-template-columns:repeat(24,20px);grid-template-rows:repeat(6,20px);gap:1px}.cell{border:1px solid #355a8c}.table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #214d83;padding:8px;text-align:left}@media(max-width:900px){.layout{display:block}.card{margin-bottom:12px}.tabs{grid-template-columns:1fr 1fr}.pred{grid-template-columns:1fr}.right{display:none}}
-</style></head><body>
-<div class="head"><div><h1>百家樂 AI 預測系統</h1><small>BACCARAT AI PREDICTION SYSTEM</small></div><div>雲端同步：<b style="color:#00ff99">已連線</b>　<a style="color:#bdefff" href="/">玩家端</a>　<a style="color:#bdefff" href="/logout">登出</a></div></div>
-<div class="layout">
-<aside class="card"><div class="logo">AI</div><h3>系統狀態</h3><p>AI學習模型 <b>v3.2.1 PRO</b></p><p>雲端資料庫 <b style="color:#00ff99">已同步</b></p><p>即時監控 <b style="color:#00ff99">運行中</b></p><p>系統效能 <b>98%</b></p><hr><h3>AI核心數據</h3><p>總預測次數 <b id="total">0</b></p><p>共享學習筆數 <b>0</b></p><p>會員總數 <b id="ucount">1</b></p><div class="nav"><button>總覽</button><button>多桌分析</button><button>AI分析</button><button>歷史紀錄</button><button>系統設定</button></div></aside>
-<main class="card">
-<div class="tabs"><button class="btn">總覽</button><button class="btn">多桌分析</button><button class="btn">AI分析</button><button class="btn">歷史紀錄</button><button class="btn">系統設定</button></div>
-<section class="card"><h2>AI 即時預測</h2><select id="tableSel" onchange="load()"><option>01</option><option>02</option><option>03</option><option>04</option><option>05</option><option>06</option><option>07</option></select>
-<div class="pred"><div><h2>閒</h2><div class="big">25%</div></div><div class="circle">25%</div><div><h2 style="color:#ff7acb">莊</h2><div class="big" style="color:#ff7acb">25%</div></div></div></section>
-<section class="card"><h3>路線圖分析</h3><div class="road" id="road"></div></section>
-<section class="card"><h3>玩家 / 代理管理</h3><div style="display:flex;gap:8px;flex-wrap:wrap"><input id="u" placeholder="帳號"><input id="p" placeholder="密碼" value="123456"><select id="role"><option value="player">玩家</option><option value="agent">代理</option><option value="admin">管理員</option></select><input id="exp" value="2026-12-31 23:59:59"><button class="btn green" onclick="addUser()">新增會員</button></div><table class="table" id="users"></table></section>
-</main>
-<aside class="card right"><h3>多桌監控</h3><div id="multi"></div><h3>最近預測紀錄</h3><div id="hist"></div></aside></div>
-<script>
-for(let i=0;i<144;i++)road.innerHTML+='<div class=cell></div>';
-async function loadUsers(){let d=await fetch('/api/users').then(r=>r.json());ucount.textContent=d.users.length;users.innerHTML='<tr><th>帳號</th><th>角色</th><th>到期</th><th>操作</th></tr>'+d.users.map(x=>`<tr><td>${x.username}</td><td>${x.role}</td><td>${x.expires_at}</td><td><button class="btn red" onclick="delUser('${x.username}')">刪除</button></td></tr>`).join('')}
-async function addUser(){await fetch('/api/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u.value,password:p.value,role:role.value,expires_at:exp.value})});loadUsers()}
-async function delUser(x){await fetch('/api/user/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:x})});loadUsers()}
-async function load(){let d=await fetch('/api/status?source=DG&table=RB01').then(r=>r.json());total.textContent=d.stats.total;multi.innerHTML=[1,2,3,4,5,6,7].map(n=>`<p>${String(n).padStart(2,'0')}　觀望　0%</p>`).join('');hist.innerHTML=d.rows.slice(-8).reverse().map(x=>`<p>${x.result}　${x.cards||''}</p>`).join('')}
-loadUsers();load();setInterval(load,5000);
-</script></body></html>
+
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Admin</title>
+<style>
+body{
+    background:#111;
+    color:white;
+    font-family:Arial;
+}
+table{
+    width:100%;
+    border-collapse:collapse;
+}
+td,th{
+    border:1px solid #444;
+    padding:10px;
+}
+a{
+    color:#0af;
+}
+</style>
+</head>
+<body>
+
+<h1>管理員後台</h1>
+
+<a href="/logout">登出</a>
+
+<table>
+<tr>
+<th>ID</th>
+<th>桌號</th>
+<th>結果</th>
+<th>手動輸入</th>
+<th>時間</th>
+</tr>
+
+{% for row in data %}
+<tr>
+<td>{{ row[0] }}</td>
+<td>{{ row[1] }}</td>
+<td>{{ row[2] }}</td>
+<td>{{ row[3] }}</td>
+<td>{{ row[4] }}</td>
+</tr>
+{% endfor %}
+
+</table>
+
+</body>
+</html>

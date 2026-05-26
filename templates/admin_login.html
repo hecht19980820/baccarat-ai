@@ -1,1 +1,31 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>登入</title><style>body{font-family:"Microsoft JhengHei";background:#071429;color:white;display:grid;place-items:center;height:100vh}.box{background:#0b2347;border:1px solid #00aaff;border-radius:12px;padding:25px;width:320px}input,button{width:100%;padding:12px;margin:8px 0;border-radius:8px;border:1px solid #159bff;background:#0d2855;color:white}button{background:#006dff;font-weight:900}</style></head><body><form class="box" method="post"><h2>管理員登入</h2>{% if error %}<p style="color:#ff5b8a">{{error}}</p>{% endif %}<input name="username" placeholder="帳號"><input name="password" placeholder="密碼" type="password"><button>登入</button><p>預設：admin / Baccarat2026!</p></form></body></html>
+
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Admin Login</title>
+<style>
+body{
+    background:#111;
+    color:white;
+    text-align:center;
+    font-family:Arial;
+}
+input{
+    padding:10px;
+    margin:10px;
+}
+</style>
+</head>
+<body>
+
+<h1>管理員登入</h1>
+
+<form method="POST">
+<input name="username" placeholder="帳號"><br>
+<input name="password" type="password" placeholder="密碼"><br>
+<button type="submit">登入</button>
+</form>
+
+</body>
+</html>
