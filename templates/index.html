@@ -1,210 +1,85 @@
-
 <!doctype html>
 <html lang="zh-Hant">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Baccarat AI 玩家端</title>
-<link rel="stylesheet" href="/static/style.css">
-</head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Baccarat AI</title><link rel="stylesheet" href="/static/style.css"></head>
 <body>
-<div class="header">
-  <div class="brand">Baccarat AI 玩家端 v2</div>
-  <div class="nav">
-    <a class="badge" href="/login">會員登入</a>
-    <a class="badge" href="/admin-login">管理後台</a>
-  </div>
+<header><b>Baccarat AI 玩家端 Phase2</b><nav><a href="/admin-login">管理後台</a></nav></header>
+<main class="wrap grid">
+<section class="card">
+<h2>桌號選擇</h2>
+<div class="row">
+<select id="category"><option>DG</option><option>MT</option></select>
+<select id="table_no"></select>
+<button onclick="clearFront()">清除此桌畫面</button>
+<button class="warn" onclick="undoLast()">撤回最後一局</button>
 </div>
-
-<div class="container">
-  <div class="grid">
-    <div class="card">
-      <h2>桌號選擇</h2>
-      <div class="row">
-        <select id="source">
-          <option value="DG">DG</option>
-          <option value="MT">MT</option>
-        </select>
-        <select id="table_no" onchange="loadTable()"></select>
-        <button class="btn-ghost" onclick="clearFrontOnly()">清除此桌畫面</button>
-        <button class="btn-warn" onclick="undoLast()">撤回最後一局</button>
-      </div>
-
-      <h2>輸入結果</h2>
-      <div class="row">
-        <button class="bigbtn btn-bad" onclick="addResult('莊')">莊</button>
-        <button class="bigbtn" onclick="addResult('閒')">閒</button>
-        <button class="bigbtn btn-good" onclick="addResult('和')">和</button>
-      </div>
-
-      <h3>手動輸入牌型</h3>
-      <div class="row">
-        <input id="pattern" placeholder="例如：0.2.8.0 / 幸運6 / 牌型">
-        <select id="manual_result">
-          <option value="莊">莊</option>
-          <option value="閒">閒</option>
-          <option value="和">和</option>
-        </select>
-        <button class="btn" onclick="addManual()">手動加入</button>
-      </div>
-      <div class="muted">手動輸入會進後台與AI路型分析，但不計算預測次數與命中率。</div>
-
-      <h2>大路盤</h2>
-      <div id="road" class="road"></div>
-    </div>
-
-    <div class="card">
-      <h2>AI 建議方向</h2>
-      <div class="ai-box">
-        <div class="muted">建議</div>
-        <div class="ai-suggest" id="aiSuggest">觀察</div>
-        <div>信心值：<span class="conf" id="aiConfidence">0%</span></div>
-        <div>趨勢：<b id="aiTrend">資料不足</b></div>
-        <div>和局率：<b id="tieRate">0%</b>　幸運6率：<b id="luckyRate">0%</b></div>
-        <div class="muted" id="aiReason">目前資料不足。</div>
-        <div id="tieAlert"></div>
-        <div id="luckyAlert"></div>
-      </div>
-
-      <h3>下注紀錄</h3>
-      <div class="row">
-        <select id="bet_side">
-          <option value="莊">莊</option>
-          <option value="閒">閒</option>
-          <option value="和">和</option>
-          <option value="幸運6">幸運6</option>
-        </select>
-        <input id="bet_amount" type="number" placeholder="金額">
-        <button class="btn" onclick="saveBet()">紀錄下注</button>
-      </div>
-      <p class="muted">第二階段：全站共享資料＋每桌獨立權重＋最近N局趨勢＋和局/幸運6提醒。</p>
-    </div>
-  </div>
+<h2>輸入結果</h2>
+<div class="row">
+<button class="big banker" onclick="addResult('莊')">莊</button>
+<button class="big player" onclick="addResult('閒')">閒</button>
+<button class="big tie" onclick="addResult('和')">和</button>
 </div>
-
+<h3>手動輸入牌型</h3>
+<div class="row">
+<input id="pattern" placeholder="例如：0.2.8.0 / 幸運6">
+<select id="manual_result"><option>莊</option><option>閒</option><option>和</option></select>
+<button onclick="manualAdd()">手動加入</button>
+</div>
+<p class="muted">手動輸入會寫入後台與AI路型分析，但不算預測次數與命中率。</p>
+<h2>大路盤</h2>
+<div id="road" class="road"></div>
+</section>
+<section class="card">
+<h2>AI 建議方向</h2>
+<div class="suggest" id="suggest">觀察</div>
+<div>信心值：<b id="confidence">0%</b></div>
+<div>趨勢：<b id="trend">資料不足</b></div>
+<div>和局率：<b id="tie_rate">0%</b> / 幸運6率：<b id="lucky_rate">0%</b></div>
+<p class="muted" id="reason"></p>
+<div id="alerts"></div>
+<h3>下注紀錄</h3>
+<div class="row">
+<select id="bet_side"><option>莊</option><option>閒</option><option>和</option><option>幸運6</option></select>
+<input id="amount" type="number" placeholder="金額">
+<button onclick="saveBet()">紀錄下注</button>
+</div>
+</section>
+</main>
 <script>
-const DG_TABLES = {{ dg_tables|tojson }};
-const MT_TABLES = {{ mt_tables|tojson }};
-let records = [];
-let currentAI = {suggest:"觀察", confidence:0, reason:""};
-
-function initTables(){
-  const source = document.getElementById("source").value;
-  const t = document.getElementById("table_no");
-  t.innerHTML = "";
-  const list = source === "DG" ? DG_TABLES : MT_TABLES;
-  list.forEach(x=>{
-    const opt=document.createElement("option");
-    opt.value=x; opt.textContent=x;
-    t.appendChild(opt);
-  });
+const DG={{ dg_tables|tojson }}, MT={{ mt_tables|tojson }};
+let records=[];
+function tables(){
+  const c=document.getElementById('category').value, t=document.getElementById('table_no');
+  t.innerHTML=''; (c==='DG'?DG:MT).forEach(x=>{let o=document.createElement('option');o.value=x;o.textContent=x;t.appendChild(o);});
 }
-document.getElementById("source").addEventListener("change", ()=>{initTables(); loadTable();});
-
-function cellClass(r){
-  if(r==="莊") return "cell b";
-  if(r==="閒") return "cell p";
-  if(r==="和") return "cell t";
-  return "cell";
+document.getElementById('category').onchange=()=>{tables();load();};
+document.getElementById('table_no').onchange=load;
+function render(){
+ const road=document.getElementById('road'); road.innerHTML='';
+ records.forEach(r=>{let d=document.createElement('div');d.className='cell '+(r.result==='莊'?'b':r.result==='閒'?'p':'t');d.textContent=r.result;road.appendChild(d);});
 }
-function renderRoad(){
-  const road=document.getElementById("road");
-  road.innerHTML="";
-  records.forEach(r=>{
-    const d=document.createElement("div");
-    d.className=cellClass(r.result);
-    d.title = (r.card_pattern || "") + (r.is_manual ? " / 手動" : "");
-    d.textContent=r.result;
-    road.appendChild(d);
-  });
+function ai(a){
+ document.getElementById('suggest').textContent=a.suggest||'觀察';
+ document.getElementById('confidence').textContent=(a.confidence||0)+'%';
+ document.getElementById('trend').textContent=a.trend||'資料不足';
+ document.getElementById('tie_rate').textContent=(a.tie_rate||0)+'%';
+ document.getElementById('lucky_rate').textContent=(a.lucky6_rate||0)+'%';
+ document.getElementById('reason').textContent=a.reason||'';
+ document.getElementById('alerts').innerHTML=(a.tie_alert?'<div class="alert">AI提醒：本桌近期和局機率偏高</div>':'')+(a.lucky6_alert?'<div class="alert">AI提醒：本桌幸運6機率偏高</div>':'');
 }
-function renderAI(ai){
-  currentAI = ai || {};
-  document.getElementById("aiSuggest").textContent = ai.suggest || "觀察";
-  document.getElementById("aiConfidence").textContent = (ai.confidence || 0) + "%";
-  document.getElementById("aiTrend").textContent = ai.trend || "資料不足";
-  document.getElementById("aiReason").textContent = ai.reason || "";
-  document.getElementById("tieRate").textContent = (ai.tie_rate || 0) + "%";
-  document.getElementById("luckyRate").textContent = (ai.lucky6_rate || 0) + "%";
-  document.getElementById("tieAlert").innerHTML = ai.tie_alert ? '<div class="alert">AI提醒：本桌近期和局機率偏高</div>' : '';
-  document.getElementById("luckyAlert").innerHTML = ai.lucky6_alert ? '<div class="alert">AI提醒：本桌幸運6機率偏高</div>' : '';
-}
-async function loadTable(){
-  const source=document.getElementById("source").value;
-  const table_no=document.getElementById("table_no").value;
-  const res=await fetch(`/api/table-data?source=${source}&table_no=${table_no}`);
-  const data=await res.json();
-  records=data.records || [];
-  renderRoad();
-  renderAI(data.ai || {});
+async function load(){
+ const c=category.value,t=table_no.value; const r=await fetch(`/api/table?category=${c}&table_no=${t}`); const j=await r.json(); records=j.records||[]; render(); ai(j.ai||{});
 }
 async function addResult(result){
-  const source=document.getElementById("source").value;
-  const table_no=document.getElementById("table_no").value;
-  const prediction = currentAI.suggest && currentAI.suggest !== "觀察" ? currentAI.suggest : "";
-  const res=await fetch("/api/add-record",{
-    method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({
-      source, table_no, result, is_manual:0,
-      prediction_before:prediction,
-      ai_confidence_before: currentAI.confidence || 0,
-      ai_reason_before: currentAI.reason || "",
-      counted_prediction: prediction ? 1 : 0
-    })
-  });
-  const data=await res.json();
-  if(!data.ok){alert(data.error || "失敗"); return;}
-  await loadTable();
+ const r=await fetch('/add-record',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({category:category.value,table_no:table_no.value,result,is_manual:0})}); await load();
 }
-async function addManual(){
-  const source=document.getElementById("source").value;
-  const table_no=document.getElementById("table_no").value;
-  const result=document.getElementById("manual_result").value;
-  const card_pattern=document.getElementById("pattern").value;
-  const res=await fetch("/api/add-record",{
-    method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({source, table_no, result, card_pattern, is_manual:1, counted_prediction:0})
-  });
-  const data=await res.json();
-  if(!data.ok){alert(data.error || "失敗"); return;}
-  document.getElementById("pattern").value="";
-  await loadTable();
+async function manualAdd(){
+ await fetch('/add-record',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({category:category.value,table_no:table_no.value,result:manual_result.value,pattern:pattern.value,is_manual:1})}); pattern.value=''; await load();
 }
-async function undoLast(){
-  if(!confirm("撤回代表輸入錯誤，會刪除後台最後一筆與AI資料，確定？")) return;
-  const source=document.getElementById("source").value;
-  const table_no=document.getElementById("table_no").value;
-  const res=await fetch("/api/undo",{
-    method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({source, table_no})
-  });
-  const data=await res.json();
-  if(!data.ok){alert(data.error || "沒有可撤回資料"); return;}
-  await loadTable();
-}
-function clearFrontOnly(){
-  records=[];
-  renderRoad();
-  alert("已清除前台畫面；後台歷史與AI學習資料不會刪除。重新選桌或重新整理會載回歷史資料。");
-}
-async function saveBet(){
-  const source=document.getElementById("source").value;
-  const table_no=document.getElementById("table_no").value;
-  const bet_side=document.getElementById("bet_side").value;
-  const amount=document.getElementById("bet_amount").value || 0;
-  await fetch("/api/bet",{
-    method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({source, table_no, bet_side, amount})
-  });
-  document.getElementById("bet_amount").value="";
-  alert("下注紀錄已寫入");
-}
-initTables();
-loadTable();
+async function undoLast(){if(confirm('撤回會同步刪除後台最後一筆，確定？')){await fetch('/undo-last',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({category:category.value,table_no:table_no.value})}); await load();}}
+function clearFront(){records=[];render();alert('只清前台畫面，後台與AI資料不刪除');}
+async function saveBet(){await fetch('/add-bet',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({category:category.value,table_no:table_no.value,bet_side:bet_side.value,amount:amount.value})});amount.value='';alert('已紀錄');}
+tables();load();
 </script>
-</body>
-</html>
+</body></html>

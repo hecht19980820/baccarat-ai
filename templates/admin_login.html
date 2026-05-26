@@ -1,15 +1,1 @@
-
-<!doctype html><html lang="zh-Hant"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>管理員登入</title><link rel="stylesheet" href="/static/style.css"></head>
-<body><div class="login"><div class="card login-card">
-<h2>管理員登入</h2>
-{% if error %}<div class="alert">{{ error }}</div>{% endif %}
-<form method="post">
-<input name="username" placeholder="帳號" style="width:100%;margin:8px 0">
-<input name="password" type="password" placeholder="密碼" style="width:100%;margin:8px 0">
-<button class="btn" style="width:100%">登入</button>
-</form>
-<p class="muted">預設：admin / Baccarat2026!</p>
-<a class="badge" href="/">返回玩家端</a>
-</div></div></body></html>
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>管理員登入</title><link rel="stylesheet" href="/static/style.css"></head><body><main class="login card"><h1>管理員登入</h1>{% if error %}<div class="alert">{{error}}</div>{% endif %}<form method="post"><input name="username" placeholder="帳號"><input name="password" type="password" placeholder="密碼"><button>登入</button></form><p class="muted">admin / Baccarat2026!</p></main></body></html>
