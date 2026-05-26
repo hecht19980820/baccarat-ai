@@ -2,6 +2,5 @@ services:
   - type: web
     name: baccarat-ai
     env: python
-    plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn main:app
+    startCommand: python main.py

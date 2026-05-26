@@ -1,2 +1,98 @@
-<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AI 百家樂玩家端</title><style>body{margin:0;background:#07111f;color:#eaf2ff;font-family:Arial,'Microsoft JhengHei'}header{display:flex;gap:10px;align-items:center;padding:10px;background:#0e1830;position:sticky;top:0}.pill,select,button,input{border:0;border-radius:10px;padding:10px}button{cursor:pointer;font-weight:700}.b{background:#ff4d5f;color:white}.p{background:#49a2ff;color:white}.t{background:#35c486;color:white}.g{background:#263653;color:#fff}.wrap{display:grid;grid-template-columns:1fr 320px;gap:12px;padding:12px}.road{background:#101b31;border-radius:16px;padding:10px;min-height:430px}.grid{display:grid;grid-template-rows:repeat(6,38px);grid-auto-flow:column;grid-auto-columns:38px;gap:4px;overflow:auto}.cell{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:900;border:2px solid #ffffff22}.side{background:#101b31;border-radius:16px;padding:14px}.pick{font-size:56px;font-weight:900;text-align:center}.small{opacity:.75}.cards{display:flex;gap:8px;flex-wrap:wrap}dialog{background:#101b31;color:#fff;border:1px solid #334;border-radius:16px;padding:20px}@media(max-width:850px){.wrap{grid-template-columns:1fr}.pick{font-size:42px}}</style></head><body><header><b>AI 百家樂</b><select id="provider"><option>DG</option><option>MT</option></select><select id="table"></select><button class="g" onclick="load()">切換桌</button><a style="color:#8cc8ff;margin-left:auto" href="/logout">登出</a></header><div class="wrap"><main class="road"><div class="cards"><button class="b" onclick="add('B')">莊</button><button class="p" onclick="add('P')">閒</button><button class="t" onclick="add('T')">和</button><button class="g" onclick="openManual()">手動輸入牌型</button><button class="g" onclick="undo()">撤回</button><button class="g" onclick="clearTable()">清除此桌</button></div><h3>大路盤</h3><div id="road" class="grid"></div></main><aside class="side"><div class="small">AI 大數據建議</div><div id="pick" class="pick">-</div><div id="conf"></div><hr><div id="why"></div><hr><div id="stats"></div><p class="small">手動補大路盤可選「不計入下注次數」。DG / MT 與桌號資料分開計算。</p></aside></div><dialog id="dlg"><h3>手動輸入牌型</h3><p class="small">格式例：0.2.8.0 或 0,2,8,0，前兩個閒、後兩個莊</p><input id="cards" placeholder="0.2.8.0"><label><input type="checkbox" id="counted"> 計入下注次數</label><br><br><button class="g" onclick="submitCards()">送出</button><button onclick="dlg.close()">取消</button></dialog><script>const DG={{dg|tojson}}, MT={{mt|tojson}};const table=document.getElementById('table'),provider=document.getElementById('provider');function fill(){table.innerHTML='';(provider.value==='DG'?DG:MT).forEach(x=>table.add(new Option(x,x)))}provider.onchange=()=>{fill();load()};fill();function cls(r){return r==='B'?'b':r==='P'?'p':'t'}function txt(r){return r==='B'?'莊':r==='P'?'閒':'和'}async function load(){let r=await fetch(`/api/state?provider=${provider.value}&table=${table.value}`);let j=await r.json();road.innerHTML='';j.rows.forEach(x=>{let d=document.createElement('div');d.className='cell '+cls(x.result);d.textContent=txt(x.result);road.appendChild(d)});pick.textContent=txt(j.prediction.pick);pick.className='pick '+cls(j.prediction.pick);conf.textContent='信心值：'+j.prediction.confidence+'%';why.textContent=j.prediction.why;stats.innerHTML=`莊 ${j.prediction.b}｜閒 ${j.prediction.p}｜和 ${j.prediction.t}｜總 ${j.prediction.total}`}
-async function add(r){await fetch('/api/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider:provider.value,table:table.value,result:r,manual:0,counted:1})});load()}function openManual(){cards.value='';counted.checked=false;dlg.showModal()}async function submitCards(){await fetch('/api/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider:provider.value,table:table.value,result:'AUTO',cards:cards.value,manual:1,counted:counted.checked?1:0})});dlg.close();load()}async function undo(){await fetch('/api/undo',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider:provider.value,table:table.value})});load()}async function clearTable(){if(confirm('確定清除這桌？')){await fetch('/api/clear',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider:provider.value,table:table.value})});load()}}load();</script></body></html>
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>百家樂 AI 預測系統</title>
+<style>
+:root{--bg:#071429;--panel:#0b2347;--line:#00aaff;--cyan:#00e5ff;--pink:#ff3df2;--blue:#1677ff;--red:#ff2d63;--green:#0fd36b;--text:#e8f7ff}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at top,#14315c,#050b18 60%);font-family:"Microsoft JhengHei",Arial;color:var(--text)}
+body.simple .pro-only{display:none!important}
+.wrap{max-width:1220px;margin:auto;padding:16px}.top{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+select,.btn,input{background:#0d2855;color:#fff;border:1px solid #159bff;border-radius:8px;padding:10px 14px;font-weight:800}
+.btn{cursor:pointer;box-shadow:0 0 10px #006bff55}.btn.red{background:#ff245a}.btn.blue{background:#006dff}.btn.green{background:#00a86b}.btn.yellow{background:#d8a500}.btn.gray{background:#24395d}
+.status{border:1px solid #168bff;border-radius:8px;padding:8px 12px;font-size:13px;display:flex;justify-content:space-between;gap:15px;min-width:300px}
+.grid{display:grid;grid-template-columns:280px 1fr 300px;gap:12px}.card{background:linear-gradient(180deg,#0d2855aa,#071b3aaa);border:1px solid #149cff;border-radius:12px;padding:14px;box-shadow:0 0 16px #007bff55}
+.brand{display:flex;gap:12px;align-items:center}.logo{width:76px;height:76px;border-radius:50%;border:2px solid var(--cyan);display:grid;place-items:center;font-size:32px;font-weight:900;color:var(--cyan);box-shadow:0 0 25px #00e5ff}
+h1{margin:0;font-size:28px}.sub{font-size:12px;color:#b9dfff}.tabs{display:flex;gap:8px;margin:14px 0}.tabs button{flex:1}
+.predbox{display:grid;grid-template-columns:1fr 170px 1fr;gap:16px;align-items:center;text-align:center}.bigpred{font-size:44px;font-weight:900;color:var(--pink);text-shadow:0 0 18px var(--pink)}.confidence{width:150px;height:150px;border-radius:50%;display:grid;place-items:center;margin:auto;border:10px solid var(--cyan);font-size:30px;font-weight:900;box-shadow:0 0 30px #00e5ff}
+.road-wrap{margin-top:12px}.road{display:grid;grid-template-columns:repeat(30,22px);grid-template-rows:repeat(6,22px);gap:1px;background:#12315e;padding:6px;border-radius:8px;overflow:hidden;width:max-content;max-width:100%}
+.cell{width:22px;height:22px;border:1px solid #395b8f;display:grid;place-items:center;font-size:12px;font-weight:900}.b{background:#ff2759;color:#fff}.p{background:#0077ff;color:#fff}.t{background:#04b66a;color:#fff}
+.actions{display:grid;grid-template-columns:1fr 1fr 1fr 90px;gap:8px;margin-top:10px}.input-row{display:flex;gap:8px;margin:8px 0}.box{height:42px;flex:1;border:1px solid #2799ff;border-radius:8px;background:#0a2148;display:grid;place-items:center;font-size:20px;font-weight:900}
+.keypad{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.keypad button{font-size:22px}.side-list .row{display:grid;grid-template-columns:40px 1fr 50px;gap:8px;align-items:center;border:1px solid #156fc4;margin:5px 0;padding:6px;border-radius:6px}
+.mobile-shell{max-width:390px;margin:auto}.desktop-only{display:block}.mobile-only{display:none}
+@media(max-width:900px){.wrap{padding:10px}.grid{display:block}.left,.right{display:none}.main{max-width:390px;margin:auto}.desktop-only{display:none}.mobile-only{display:block}.predbox{grid-template-columns:1fr 1fr}.predbox .confidence{display:none}.bigpred{font-size:34px}.road{grid-template-columns:repeat(14,20px);grid-template-rows:repeat(6,20px)}.cell{width:20px;height:20px}.actions{grid-template-columns:1fr 1fr 1fr 60px}.top{justify-content:center}.status{min-width:0;width:100%;font-size:11px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <select id="source" onchange="switchTables();loadData()"><option>DG</option><option>MT</option></select>
+    <select id="table" onchange="loadData()"></select>
+    <select id="viewMode" onchange="setMode()"><option value="desktop">電腦版</option><option value="mobile">手機版</option><option value="simple">簡易版</option></select>
+    <div class="status"><span>會員到期：2026-12-31 23:59:59</span><span>↻ 更新時間 <b id="updated">--:--:--</b></span></div>
+    <a style="margin-left:auto;color:#bdefff" href="/admin">管理員後台</a>
+  </div>
+  <div class="grid">
+    <aside class="left card pro-only">
+      <div class="brand"><div class="logo">AI</div><div><h1>百家樂 AI 預測系統</h1><div class="sub">BACCARAT AI PREDICTION SYSTEM</div></div></div>
+      <div class="tabs"><button class="btn blue">總覽</button><button class="btn blue">多桌分析</button></div>
+      <div class="card" style="margin-top:10px"><b>AI 核心數據</b><p>總預測次數 <b id="totalL">0</b></p><p>會員總數 1</p><p>學習狀態 72%</p></div>
+    </aside>
+    <main class="main">
+      <section class="card">
+        <div class="predbox">
+          <div><h3>閒 PLAYER</h3><div id="playerRate" class="bigpred" style="color:#00d9ff">25%</div></div>
+          <div class="confidence"><span id="conf">0%</span></div>
+          <div><h3>莊 BANKER</h3><div id="bankerRate" class="bigpred">25%</div></div>
+        </div>
+        <div style="text-align:center;margin-top:6px"><b>AI 建議方向</b><div id="pred" class="bigpred">觀望</div></div>
+      </section>
+      <section class="card road-wrap">
+        <b>♠ 大路盤</b>
+        <div id="road" class="road"></div>
+        <div class="actions">
+          <button class="btn red" onclick="addResult('B',true)">莊</button>
+          <button class="btn blue" onclick="addResult('P',true)">閒</button>
+          <button class="btn green" onclick="addResult('T',true)">和</button>
+          <button class="btn gray" onclick="undo()">↩</button>
+        </div>
+      </section>
+      <section class="card">
+        <b>♠ 牌組輸入</b><span style="float:right;font-size:12px">最少4張，最多6張</span>
+        <div class="input-row" id="cardBoxes"></div>
+        <div style="font-size:12px;color:#9bd8ff;margin-bottom:8px">輸入順序：閒1 → 莊1 → 閒2 → 莊2 → 第5張 → 第6張</div>
+        <div class="keypad">
+          <button class="btn gray" onclick="pressNum(1)">1</button><button class="btn gray" onclick="pressNum(2)">2</button><button class="btn gray" onclick="pressNum(3)">3</button>
+          <button class="btn gray" onclick="pressNum(4)">4</button><button class="btn gray" onclick="pressNum(5)">5</button><button class="btn gray" onclick="pressNum(6)">6</button>
+          <button class="btn gray" onclick="pressNum(7)">7</button><button class="btn gray" onclick="pressNum(8)">8</button><button class="btn gray" onclick="pressNum(9)">9</button>
+          <button class="btn gray" onclick="clearCards()">清除</button><button class="btn gray" onclick="pressNum(0)">0</button><button class="btn yellow" onclick="sendCards()">送出</button>
+        </div>
+        <button class="btn red" style="width:100%;margin-top:10px" onclick="clearTable()">清除此桌資料</button>
+      </section>
+    </main>
+    <aside class="right card pro-only">
+      <h3>多桌監控</h3><div id="multi" class="side-list"></div>
+      <h3>最近預測紀錄</h3><div id="history" class="side-list"></div>
+    </aside>
+  </div>
+</div>
+<script>
+const dg=["RB01","RB02","RB03","RB04","RB05","RB06","RB07"];
+const mt=["1","2","3","3A","5","6","7","8","9","10","11","12","13","13A","15"];
+let cards=[];
+function switchTables(){let s=document.getElementById('source').value;let t=document.getElementById('table');t.innerHTML='';(s==='DG'?dg:mt).forEach(x=>t.innerHTML+=`<option>${x}</option>`)}
+function setMode(){let m=document.getElementById('viewMode').value;document.body.classList.toggle('simple',m==='simple');}
+function boxes(){let el=document.getElementById('cardBoxes');el.innerHTML='';for(let i=0;i<6;i++)el.innerHTML+=`<div class="box">${cards[i]??''}</div>`}
+function pressNum(n){if(cards.length<6){cards.push(n);boxes()}}
+function clearCards(){cards=[];boxes()}
+function ctx(){return {source:source.value, table:table.value}}
+async function addResult(r,counted){await fetch('/api/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...ctx(),result:r,counted:counted?1:0,cards:cards.join('.')})});clearCards();loadData()}
+async function sendCards(){ if(cards.length<4){alert('最少輸入4張');return} await addResult(calcWinner(cards), false) }
+function calcWinner(a){let p=(Number(a[0])+Number(a[2])+(a[4]?Number(a[4]):0))%10;let b=(Number(a[1])+Number(a[3])+(a[5]?Number(a[5]):0))%10;return b>p?'B':p>b?'P':'T'}
+async function undo(){await fetch('/api/undo',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(ctx())});loadData()}
+async function clearTable(){if(confirm('確定清除此桌？')){await fetch('/api/clear',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(ctx())});loadData()}}
+function renderRoad(rows){let road=document.getElementById('road');road.innerHTML='';let arr=rows.map(x=>x.result);for(let i=0;i<180;i++){let r=arr[i]||'';road.innerHTML+=`<div class="cell ${r==='B'?'b':r==='P'?'p':r==='T'?'t':''}">${r==='B'?'莊':r==='P'?'閒':r==='T'?'和':''}</div>`}}
+async function loadData(){let d=await fetch(`/api/status?source=${source.value}&table=${table.value}`).then(r=>r.json());updated.textContent=d.updated;conf.textContent=d.confidence+'%';pred.textContent=d.prediction;totalL.textContent=d.stats.total;bankerRate.textContent=(d.stats.total?Math.round(d.stats.B/d.stats.total*100):25)+'%';playerRate.textContent=(d.stats.total?Math.round(d.stats.P/d.stats.total*100):25)+'%';renderRoad(d.rows);history.innerHTML=d.rows.slice(-6).reverse().map((x,i)=>`<div class=row><b>${i+1}</b><span>${x.result==='B'?'莊':x.result==='P'?'閒':'和'}</span><em>${d.confidence}%</em></div>`).join('');multi.innerHTML=(source.value==='DG'?dg:mt).slice(0,7).map((x,i)=>`<div class=row><b>${String(i+1).padStart(2,'0')}</b><span>觀望</span><em>0%</em></div>`).join('')}
+switchTables();boxes();loadData();setInterval(loadData,5000);
+</script>
+</body></html>
