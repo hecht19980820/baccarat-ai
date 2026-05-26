@@ -1,102 +1,199 @@
 
-<!DOCTYPE html>
-<html>
+<!doctype html>
+<html lang="zh-Hant">
 <head>
 <meta charset="utf-8">
-<title>Baccarat AI</title>
-<style>
-body{
-    background:#111;
-    color:white;
-    font-family:Arial;
-    text-align:center;
-}
-.btn{
-    padding:15px 30px;
-    margin:10px;
-    font-size:24px;
-}
-.roadmap{
-    margin-top:20px;
-    border:1px solid #444;
-    min-height:200px;
-    padding:10px;
-}
-</style>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Baccarat AI 玩家端</title>
+<link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
+<div class="header">
+  <div class="brand">Baccarat AI 玩家端</div>
+  <div class="nav">
+    <a class="badge" href="/login">會員登入</a>
+    <a class="badge" href="/admin-login">管理後台</a>
+  </div>
+</div>
 
-<h1>Baccarat AI System</h1>
+<div class="container">
+  <div class="grid">
+    <div class="card">
+      <h2>桌號選擇</h2>
+      <div class="row">
+        <select id="source" onchange="loadTable()">
+          <option value="DG">DG</option>
+          <option value="MT">MT</option>
+        </select>
+        <select id="table_no" onchange="loadTable()"></select>
+        <button class="btn-ghost" onclick="clearFrontOnly()">清除此桌畫面</button>
+        <button class="btn-warn" onclick="undoLast()">撤回最後一局</button>
+      </div>
 
-<select id="table">
-<option>DG-RB01</option>
-<option>DG-RB02</option>
-<option>MT-1</option>
-<option>MT-2</option>
-</select>
+      <h2>輸入結果</h2>
+      <div class="row">
+        <button class="bigbtn btn-bad" onclick="addResult('莊')">莊</button>
+        <button class="bigbtn" onclick="addResult('閒')">閒</button>
+        <button class="bigbtn btn-good" onclick="addResult('和')">和</button>
+      </div>
 
-<br><br>
+      <h3>手動輸入牌型</h3>
+      <div class="row">
+        <input id="pattern" placeholder="例如：0.2.8.0 / 幸運6 / 牌型備註">
+        <select id="manual_result">
+          <option value="莊">莊</option>
+          <option value="閒">閒</option>
+          <option value="和">和</option>
+        </select>
+        <button class="btn" onclick="addManual()">手動加入</button>
+      </div>
+      <div class="muted">手動輸入會進後台資料與路型分析，但不計算預測次數與命中率。</div>
 
-<button class="btn" onclick="send('莊')">莊</button>
-<button class="btn" onclick="send('閒')">閒</button>
-<button class="btn" onclick="send('和')">和</button>
+      <h2>大路盤</h2>
+      <div id="road" class="road"></div>
+    </div>
 
-<br>
+    <div class="card">
+      <h2>AI 建議方向</h2>
+      <div class="ai-box">
+        <div>建議：<b id="aiSuggest">觀察</b></div>
+        <div>信心值：<b id="aiConfidence">0%</b></div>
+        <div>趨勢：<b id="aiTrend">資料不足</b></div>
+        <div class="muted" id="aiReason">目前資料不足。</div>
+        <div id="tieAlert"></div>
+        <div id="luckyAlert"></div>
+      </div>
 
-<button onclick="manualInput()">手動輸入牌型</button>
-<button onclick="undo()">撤回</button>
-<button onclick="clearTable()">清除此桌</button>
-
-<div class="roadmap" id="roadmap"></div>
+      <h3>下注紀錄</h3>
+      <div class="row">
+        <select id="bet_side">
+          <option value="莊">莊</option>
+          <option value="閒">閒</option>
+          <option value="和">和</option>
+          <option value="幸運6">幸運6</option>
+        </select>
+        <input id="bet_amount" type="number" placeholder="金額">
+        <button class="btn" onclick="saveBet()">紀錄下注</button>
+      </div>
+      <p class="muted">這是第一階段可操作版：後台管理先完整可用，AI 先用統計權重版。</p>
+    </div>
+  </div>
+</div>
 
 <script>
-let roadmap = [];
-let history = [];
+const DG_TABLES = {{ dg_tables|tojson }};
+const MT_TABLES = {{ mt_tables|tojson }};
+let records = [];
+let currentAI = {suggest:"觀察"};
 
-function render(){
-    document.getElementById("roadmap").innerHTML = roadmap.join(" ");
+function initTables(){
+  const source = document.getElementById("source").value;
+  const t = document.getElementById("table_no");
+  t.innerHTML = "";
+  const list = source === "DG" ? DG_TABLES : MT_TABLES;
+  list.forEach(x=>{
+    const opt=document.createElement("option");
+    opt.value=x; opt.textContent=x;
+    t.appendChild(opt);
+  });
 }
+document.getElementById("source").addEventListener("change", ()=>{initTables(); loadTable();});
 
-function send(result, manual=0){
-
-    if(!manual){
-        history.push(result);
-    }
-
-    roadmap.push(result);
-    render();
-
-    fetch("/add_record",{
-        method:"POST",
-        headers:{
-            "Content-Type":"application/json"
-        },
-        body:JSON.stringify({
-            table:document.getElementById("table").value,
-            result:result,
-            manual:manual
-        })
-    });
+function cellClass(r){
+  if(r==="莊") return "cell b";
+  if(r==="閒") return "cell p";
+  if(r==="和") return "cell t";
+  return "cell";
 }
-
-function manualInput(){
-    let r = prompt("輸入牌型");
-    if(r){
-        send(r,1);
-    }
+function renderRoad(){
+  const road=document.getElementById("road");
+  road.innerHTML="";
+  records.forEach(r=>{
+    const d=document.createElement("div");
+    d.className=cellClass(r.result);
+    d.textContent=r.result;
+    road.appendChild(d);
+  });
 }
-
-function undo(){
-    roadmap.pop();
-    history.pop();
-    render();
+function renderAI(ai){
+  currentAI = ai || {};
+  document.getElementById("aiSuggest").textContent = ai.suggest || "觀察";
+  document.getElementById("aiConfidence").textContent = (ai.confidence || 0) + "%";
+  document.getElementById("aiTrend").textContent = ai.trend || "資料不足";
+  document.getElementById("aiReason").textContent = ai.reason || "";
+  document.getElementById("tieAlert").innerHTML = ai.tie_alert ? '<div class="alert">AI提醒：本桌近期和局機率偏高</div>' : '';
+  document.getElementById("luckyAlert").innerHTML = ai.lucky6_alert ? '<div class="alert">AI提醒：本桌幸運6機率偏高</div>' : '';
 }
-
-function clearTable(){
-    roadmap = [];
-    render();
+async function loadTable(){
+  const source=document.getElementById("source").value;
+  const table_no=document.getElementById("table_no").value;
+  const res=await fetch(`/api/table-data?source=${source}&table_no=${table_no}`);
+  const data=await res.json();
+  records=data.records || [];
+  renderRoad();
+  renderAI(data.ai || {});
 }
+async function addResult(result){
+  const source=document.getElementById("source").value;
+  const table_no=document.getElementById("table_no").value;
+  const prediction = currentAI.suggest && currentAI.suggest !== "觀察" ? currentAI.suggest : "";
+  const res=await fetch("/api/add-record",{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({source, table_no, result, is_manual:0, prediction_before:prediction, counted_prediction: prediction ? 1 : 0})
+  });
+  const data=await res.json();
+  if(!data.ok){alert(data.error || "失敗"); return;}
+  await loadTable();
+}
+async function addManual(){
+  const source=document.getElementById("source").value;
+  const table_no=document.getElementById("table_no").value;
+  const result=document.getElementById("manual_result").value;
+  const card_pattern=document.getElementById("pattern").value;
+  const res=await fetch("/api/add-record",{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({source, table_no, result, card_pattern, is_manual:1, counted_prediction:0})
+  });
+  const data=await res.json();
+  if(!data.ok){alert(data.error || "失敗"); return;}
+  document.getElementById("pattern").value="";
+  await loadTable();
+}
+async function undoLast(){
+  if(!confirm("撤回代表輸入錯誤，會刪除後台最後一筆與AI資料，確定？")) return;
+  const source=document.getElementById("source").value;
+  const table_no=document.getElementById("table_no").value;
+  const res=await fetch("/api/undo",{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({source, table_no})
+  });
+  const data=await res.json();
+  if(!data.ok){alert(data.error || "沒有可撤回資料"); return;}
+  await loadTable();
+}
+function clearFrontOnly(){
+  records=[];
+  renderRoad();
+  alert("已清除前台畫面；後台歷史與AI學習資料不會刪除。重新選桌或重新整理會載回歷史資料。");
+}
+async function saveBet(){
+  const source=document.getElementById("source").value;
+  const table_no=document.getElementById("table_no").value;
+  const bet_side=document.getElementById("bet_side").value;
+  const amount=document.getElementById("bet_amount").value || 0;
+  await fetch("/api/bet",{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({source, table_no, bet_side, amount})
+  });
+  document.getElementById("bet_amount").value="";
+  alert("下注紀錄已寫入");
+}
+initTables();
+loadTable();
 </script>
-
 </body>
 </html>
