@@ -1,166 +1,40 @@
-
 <!doctype html>
 <html lang="zh-Hant">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Baccarat AI</title>
-<link rel="stylesheet" href="/static/style.css">
-</head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Baccarat AI Phase4-A</title><link rel="stylesheet" href="/static/style.css"></head>
 <body>
-<header>
-  <b>Baccarat AI 玩家端 Phase3</b>
-  <nav>
-    <span>{{user}}</span>
-    <a href="/player-logout">登出</a>
-    <a href="/admin-login">管理後台</a>
-  </nav>
-</header>
-
+<header><b>Baccarat AI 玩家端 Phase4-A</b><nav><span>{{user}}</span><a href="/player-logout">登出</a><a href="/admin-login">管理後台</a></nav></header>
 <main class="wrap grid">
 <section class="card">
-  <h2>桌號選擇</h2>
-  <div class="row">
-    <select id="category"><option>DG</option><option>MT</option></select>
-    <select id="table_no"></select>
-    <button onclick="clearFront()">清除此桌畫面</button>
-    <button class="warn" onclick="undoLast()">撤回最後一局</button>
-  </div>
-
-  <h2>輸入結果</h2>
-  <div class="row">
-    <button class="big banker" onclick="addResult('莊')">莊</button>
-    <button class="big player" onclick="addResult('閒')">閒</button>
-    <button class="big tie" onclick="addResult('和')">和</button>
-  </div>
-
-  <h3>手動輸入牌型</h3>
-  <div class="row">
-    <input id="pattern" placeholder="例如：0.2.8.0 / 幸運6">
-    <select id="manual_result"><option>莊</option><option>閒</option><option>和</option></select>
-    <button onclick="manualAdd()">手動加入</button>
-  </div>
-  <p class="muted">手動輸入會寫入後台與 AI 路型分析，但不算預測次數與命中率。</p>
-
-  <h2>大路盤</h2>
-  <div id="road" class="road"></div>
+<h2>桌號選擇</h2><div class="row"><select id="category"><option>DG</option><option>MT</option></select><select id="table_no"></select><button onclick="clearFront()">清除此桌畫面</button><button class="warn" onclick="undoLast()">撤回最後一局</button></div>
+<h2>輸入結果</h2><div class="row"><button class="big banker" onclick="addResult('莊')">莊</button><button class="big player" onclick="addResult('閒')">閒</button><button class="big tie" onclick="addResult('和')">和</button></div>
+<h3>手動輸入牌型（算預測與命中）</h3><div class="row"><input id="pattern" placeholder="例如：0.2.8.0 / 幸運6"><select id="manual_result"><option>莊</option><option>閒</option><option>和</option></select><button onclick="manualPattern()">手動輸入牌型</button></div>
+<h3>手動補大路盤（不算預測與命中）</h3><div class="row"><select id="roadfill_result"><option>莊</option><option>閒</option><option>和</option></select><button onclick="roadFill()">補大路盤</button></div>
+<p class="muted">牌型輸入會算預測與命中；補大路盤只補路單，不算預測、不算命中、不調整權重。</p>
+<h2>大路盤</h2><div id="road" class="road"></div>
 </section>
-
 <section class="card">
-  <h2>AI 建議方向</h2>
-  <div class="suggest" id="suggest">觀察</div>
-  <div>信心值：<b id="confidence">0%</b></div>
-  <div>趨勢：<b id="trend">資料不足</b></div>
-  <div>和局率：<b id="tie_rate">0%</b> / 幸運6率：<b id="lucky_rate">0%</b></div>
-  <p class="muted" id="reason"></p>
-  <div id="alerts"></div>
-
-  <h3>下注紀錄</h3>
-  <div class="row">
-    <select id="bet_side"><option>莊</option><option>閒</option><option>和</option><option>幸運6</option></select>
-    <input id="amount" type="number" placeholder="金額">
-    <button onclick="saveBet()">紀錄下注</button>
-  </div>
+<h2>AI 建議方向</h2><div class="suggest" id="suggest">觀察</div>
+<div class="percent-row"><div class="percent-box banker-line">莊 <b id="banker_percent">0%</b></div><div class="percent-box player-line">閒 <b id="player_percent">0%</b></div></div>
+<div>信心值：<b id="confidence">0%</b>　風險：<b id="risk">高</b></div>
+<div>趨勢：<b id="trend">資料不足</b></div><div>路型：<b id="road_pattern">資料不足</b></div>
+<div>和局率：<b id="tie_rate">0%</b> / 幸運6率：<b id="lucky_rate">0%</b></div><p class="muted" id="reason"></p><div id="alerts"></div>
+<h3>最近 N 局分析</h3><div id="windows" class="window-grid"></div>
+<h3>下注紀錄</h3><div class="row"><select id="bet_side"><option>莊</option><option>閒</option><option>和</option><option>幸運6</option></select><input id="amount" type="number" placeholder="金額"><button onclick="saveBet()">紀錄下注</button></div>
 </section>
 </main>
-
 <script>
-const DG={{ dg_tables|tojson }};
-const MT={{ mt_tables|tojson }};
-let records=[];
-
-function tables(){
-  const c=category.value;
-  table_no.innerHTML='';
-  (c==='DG'?DG:MT).forEach(x=>{
-    let o=document.createElement('option');
-    o.value=x;
-    o.textContent=x;
-    table_no.appendChild(o);
-  });
-}
-
-category.onchange=()=>{tables();load();};
-table_no.onchange=load;
-
-function render(){
-  road.innerHTML='';
-  records.forEach(r=>{
-    let d=document.createElement('div');
-    d.className='cell '+(r.result==='莊'?'b':r.result==='閒'?'p':'t');
-    d.textContent=r.result;
-    road.appendChild(d);
-  });
-}
-
-function ai(a){
-  suggest.textContent=a.suggest||'觀察';
-  confidence.textContent=(a.confidence||0)+'%';
-  trend.textContent=a.trend||'資料不足';
-  tie_rate.textContent=(a.tie_rate||0)+'%';
-  lucky_rate.textContent=(a.lucky6_rate||0)+'%';
-  reason.textContent=a.reason||'';
-  alerts.innerHTML=(a.tie_alert?'<div class="alert">AI提醒：本桌近期和局機率偏高</div>':'')+
-                   (a.lucky6_alert?'<div class="alert">AI提醒：本桌幸運6機率偏高</div>':'');
-}
-
-async function load(){
-  let r=await fetch(`/api/table?category=${category.value}&table_no=${table_no.value}`);
-  if(r.status===401){ location.href='/login'; return; }
-  let j=await r.json();
-  records=j.records||[];
-  render();
-  ai(j.ai||{});
-}
-
-async function addResult(result){
-  await fetch('/add-record',{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({category:category.value,table_no:table_no.value,result,is_manual:0})
-  });
-  await load();
-}
-
-async function manualAdd(){
-  await fetch('/add-record',{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({category:category.value,table_no:table_no.value,result:manual_result.value,pattern:pattern.value,is_manual:1})
-  });
-  pattern.value='';
-  await load();
-}
-
-async function undoLast(){
-  if(confirm('撤回會同步刪除後台最後一筆，確定？')){
-    await fetch('/undo-last',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({category:category.value,table_no:table_no.value})
-    });
-    await load();
-  }
-}
-
-function clearFront(){
-  records=[];
-  render();
-  alert('只清前台畫面，後台與 AI 資料不刪除');
-}
-
-async function saveBet(){
-  await fetch('/add-bet',{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({category:category.value,table_no:table_no.value,bet_side:bet_side.value,amount:amount.value})
-  });
-  amount.value='';
-  alert('已紀錄');
-}
-
-tables();
-load();
+const DG={{ dg_tables|tojson }}; const MT={{ mt_tables|tojson }}; let records=[];
+function tables(){const c=category.value; table_no.innerHTML=''; (c==='DG'?DG:MT).forEach(x=>{let o=document.createElement('option');o.value=x;o.textContent=x;table_no.appendChild(o);});}
+category.onchange=()=>{tables();load();}; table_no.onchange=load;
+function render(){road.innerHTML=''; records.forEach(r=>{let d=document.createElement('div'); d.className='cell '+(r.result==='莊'?'b':r.result==='閒'?'p':'t'); d.textContent=r.result; if(r.record_type==='roadfill') d.classList.add('fill'); road.appendChild(d);});}
+function ai(a){suggest.textContent=a.suggest||'觀察'; confidence.textContent=(a.confidence||0)+'%'; banker_percent.textContent=(a.banker_percent||0)+'%'; player_percent.textContent=(a.player_percent||0)+'%'; trend.textContent=a.trend||'資料不足'; road_pattern.textContent=a.road_pattern||'資料不足'; risk.textContent=a.risk||'高'; tie_rate.textContent=(a.tie_rate||0)+'%'; lucky_rate.textContent=(a.lucky6_rate||0)+'%'; reason.textContent=a.reason||''; alerts.innerHTML=(a.tie_alert?'<div class="alert">AI提醒：本桌近期和局機率偏高</div>':'')+(a.lucky6_alert?'<div class="alert">AI提醒：本桌幸運6機率偏高</div>':''); windows.innerHTML=''; (a.windows||[]).forEach(w=>{let div=document.createElement('div'); div.className='window-card'; div.innerHTML=`<b>最近${w.n}局</b><br>莊 ${w.banker_rate}% / 閒 ${w.player_rate}% / 和 ${w.tie_rate}%<br><span class="muted">資料 ${w.total} 局</span>`; windows.appendChild(div);});}
+async function load(){let r=await fetch(`/api/table?category=${category.value}&table_no=${table_no.value}`); if(r.status===401){location.href='/login';return;} let j=await r.json(); records=j.records||[]; render(); ai(j.ai||{});}
+async function addResult(result){await fetch('/add-record',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({category:category.value,table_no:table_no.value,result,is_manual:0,record_type:'normal'})}); await load();}
+async function manualPattern(){await fetch('/add-record',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({category:category.value,table_no:table_no.value,result:manual_result.value,pattern:pattern.value,is_manual:1,record_type:'pattern'})}); pattern.value=''; await load();}
+async function roadFill(){await fetch('/add-record',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({category:category.value,table_no:table_no.value,result:roadfill_result.value,pattern:'手動補大路盤',is_manual:1,record_type:'roadfill'})}); await load();}
+async function undoLast(){if(confirm('撤回會同步刪除後台最後一筆，確定？')){await fetch('/undo-last',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({category:category.value,table_no:table_no.value})}); await load();}}
+function clearFront(){records=[]; render(); alert('只清前台畫面，後台與 AI 資料不刪除');}
+async function saveBet(){await fetch('/add-bet',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({category:category.value,table_no:table_no.value,bet_side:bet_side.value,amount:amount.value})}); amount.value=''; alert('已紀錄');}
+tables(); load();
 </script>
-</body>
-</html>
+</body></html>
