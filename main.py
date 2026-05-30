@@ -4,7 +4,7 @@ import sqlite3, os, secrets, string, re
 from datetime import datetime, timedelta
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "baccarat_phase4a_secret")
+app.secret_key = os.environ.get("SECRET_KEY", "baccarat_phase4b_secret")
 DB = os.environ.get("DB_PATH", "baccarat_system.db")
 ADMIN_USER = os.environ.get("ADMIN_USER", "admin")
 ADMIN_PASS = os.environ.get("ADMIN_PASS", "Baccarat2026!")
@@ -92,6 +92,28 @@ def road_pattern(rows):
     else: name = "路型普通"
     return {"name":name,"streak":streak,"jump":jump}
 
+
+def shared_model(cat):
+    """DG/MT 共享模型：同廳別所有桌資料一起計算，讓越多人用越有參考價值。"""
+    c = conn()
+    rows = c.execute("SELECT * FROM game_records WHERE category=? ORDER BY id ASC", (cat,)).fetchall()
+    c.close()
+    if not rows:
+        return {"total":0,"banker_rate":0,"player_rate":0,"tie_rate":0,"lucky6_rate":0}
+    recent = rows[-300:]
+    total = max(1, len(recent))
+    b = sum(1 for r in recent if r["result"] == "莊")
+    p = sum(1 for r in recent if r["result"] == "閒")
+    t = sum(1 for r in recent if r["result"] == "和")
+    l = sum(1 for r in recent if r["lucky6"] == 1)
+    return {
+        "total": len(recent),
+        "banker_rate": round(b / total * 100, 1),
+        "player_rate": round(p / total * 100, 1),
+        "tie_rate": round(t / total * 100, 1),
+        "lucky6_rate": round(l / total * 100, 1)
+    }
+
 def ai_analysis(cat, table):
     c = conn(); w = get_weight(c, cat, table); rows = table_records(c, cat, table); c.close()
     windows = [calc_window(rows,n) for n in [10,20,50,100]]
@@ -100,8 +122,14 @@ def ai_analysis(cat, table):
     rp = road_pattern(rows[-30:])
     bw,pw,tw,lw = float(w["banker_weight"] or 1),float(w["player_weight"] or 1),float(w["tie_weight"] or 1),float(w["lucky6_weight"] or 1)
     w10,w20,w50,w100 = windows
-    bs = (w10["banker_rate"]*.35+w20["banker_rate"]*.30+w50["banker_rate"]*.25+w100["banker_rate"]*.10)*bw
-    ps = (w10["player_rate"]*.35+w20["player_rate"]*.30+w50["player_rate"]*.25+w100["player_rate"]*.10)*pw
+    shared = shared_model(cat)
+
+    # Phase4-B：桌號模型 + DG/MT共享模型 + 最近局數共同計分
+    # 桌號近期 70%，同廳共享 30%；再乘上每桌獨立權重
+    table_b = (w10["banker_rate"]*.35+w20["banker_rate"]*.30+w50["banker_rate"]*.25+w100["banker_rate"]*.10)
+    table_p = (w10["player_rate"]*.35+w20["player_rate"]*.30+w50["player_rate"]*.25+w100["player_rate"]*.10)
+    bs = (table_b * 0.70 + shared["banker_rate"] * 0.30) * bw
+    ps = (table_p * 0.70 + shared["player_rate"] * 0.30) * pw
     if "莊" in rp["name"] and rp["streak"] >= 2: bs += min(16, rp["streak"]*4)
     if "閒" in rp["name"] and rp["streak"] >= 2: ps += min(16, rp["streak"]*4)
     if rp["jump"] >= 7:
@@ -120,7 +148,8 @@ def ai_analysis(cat, table):
     tie_rate = round((w10["tie_rate"]*.45+w20["tie_rate"]*.35+w50["tie_rate"]*.20)*tw,1)
     lucky_rate = round((l/max(1,len(recent))*100)*lw,1)
     risk = "低" if conf>=72 else "中" if conf>=60 else "高"
-    return {"suggest":sug,"confidence":round(conf,1),"banker_percent":bp,"player_percent":pp,"trend":"近期偏莊" if b>p else "近期偏閒" if p>b else "莊閒接近","reason":f"綜合最近10/20/50/100局、路型、和局、幸運6與本桌權重；路型：{rp['name']}。","tie_alert": tie_rate>=14 or sum(1 for r in rows[-10:] if r["result"]=="和")>=2,"lucky6_alert": lucky_rate>=12 or l>=3,"tie_rate":tie_rate,"lucky6_rate":lucky_rate,"windows":windows,"road_pattern":rp["name"],"risk":risk}
+    shared_note = f"{cat}共享模型：莊{shared['banker_rate']}% / 閒{shared['player_rate']}% / 和{shared['tie_rate']}%，共享資料{shared['total']}局"
+    return {"suggest":sug,"confidence":round(conf,1),"banker_percent":bp,"player_percent":pp,"trend":"近期偏莊" if b>p else "近期偏閒" if p>b else "莊閒接近","reason":f"綜合最近10/20/50/100局、路型、本桌權重與{cat}共享模型；路型：{rp['name']}。{shared_note}。","tie_alert": tie_rate>=14 or sum(1 for r in rows[-10:] if r["result"]=="和")>=2,"lucky6_alert": lucky_rate>=12 or l>=3,"tie_rate":tie_rate,"lucky6_rate":lucky_rate,"windows":windows,"road_pattern":rp["name"],"risk":risk,"shared":shared}
 
 def update_weight(cat, table, result, pred, manual, record_type, l6):
     if record_type == "roadfill": return
