@@ -1,8 +1,8 @@
 <!doctype html>
 <html lang="zh-Hant">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Baccarat AI Phase4-D</title><link rel="stylesheet" href="/static/style.css"></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Baccarat AI Phase4-E</title><link rel="stylesheet" href="/static/style.css"></head>
 <body>
-<header><b>Baccarat AI 玩家端 Phase4-D</b><nav><span>{{user}}</span><a href="/player-logout">登出</a><a href="/admin-login">管理後台</a></nav></header>
+<header><b>Baccarat AI 玩家端 Phase4-E</b><nav><span>{{user}}</span><a href="/player-logout">登出</a><a href="/admin-login">管理後台</a></nav></header>
 <main class="wrap grid">
 <section class="card">
 <h2>桌號選擇</h2><div class="row"><select id="category"><option>DG</option><option>MT</option></select><select id="table_no"></select><button onclick="clearFront()">清除此桌畫面</button><button class="warn" onclick="undoLast()">撤回最後一局</button></div>
@@ -18,7 +18,7 @@
 <div>信心值：<b id="confidence">0%</b>　風險：<b id="risk">高</b></div>
 <div>趨勢：<b id="trend">資料不足</b></div><div>路型：<b id="road_pattern">資料不足</b></div>
 <div>和局率：<b id="tie_rate">0%</b> / 幸運6率：<b id="lucky_rate">0%</b></div>
-  <div>共享模型：<b id="shared_model">資料不足</b></div><p class="muted" id="reason"></p><div id="alerts"></div><h3>AI提醒中心</h3><div id="alert_list" class="alert-list"></div>
+  <div>共享模型：<b id="shared_model">資料不足</b></div><p class="muted" id="reason"></p><div id="alerts"></div><h3>AI提醒中心 / Phase4-E</h3><div id="alert_list" class="alert-list"></div>
 <h3>最近 N 局分析</h3><div id="windows" class="window-grid"></div>
 <h3>下注紀錄</h3><div class="row"><select id="bet_side"><option>莊</option><option>閒</option><option>和</option><option>幸運6</option></select><input id="amount" type="number" placeholder="金額"><button onclick="saveBet()">紀錄下注</button></div>
 </section>

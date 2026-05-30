@@ -4,7 +4,7 @@ import sqlite3, os, secrets, string, re, csv, io
 from datetime import datetime, timedelta
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "baccarat_phase4d_secret")
+app.secret_key = os.environ.get("SECRET_KEY", "baccarat_phase4e_secret")
 DB = os.environ.get("DB_PATH", "baccarat_system.db")
 ADMIN_USER = os.environ.get("ADMIN_USER", "admin")
 ADMIN_PASS = os.environ.get("ADMIN_PASS", "Baccarat2026!")
@@ -323,7 +323,7 @@ def admin():
     SUM(CASE WHEN is_correct=1 THEN 1 ELSE 0 END) corrects
     FROM game_records GROUP BY category,table_no ORDER BY category,table_no""").fetchall()
     c.close()
-    return render_template("admin.html", users=users, agents=agents, serials=serials, weights=weights, records=records, total_records=total_records, manual_records=manual_records, roadfill_records=roadfill_records, predict_count=predict_count, hit_rate=hit_rate, table_stats=table_stats, best_tables=best_tables(10), hit_summary=hit_summary(), is_super=is_admin(), agent_user=session.get("agent_user"))
+    return render_template("admin.html", users=users, agents=agents, serials=serials, weights=weights, records=records, total_records=total_records, manual_records=manual_records, roadfill_records=roadfill_records, predict_count=predict_count, hit_rate=hit_rate, table_stats=table_stats, best_tables=best_tables(10), dg_rankings=venue_rankings("DG"), mt_rankings=venue_rankings("MT"), abnormal_tables=abnormal_tables(), bet_performance=bet_performance(), recent_100=recent_100_summary(), hit_summary=hit_summary(), is_super=is_admin(), agent_user=session.get("agent_user"))
 
 @app.route("/add-user", methods=["POST"])
 def add_user():
@@ -409,6 +409,84 @@ def add_bet():
     d=request.json or {}; c=conn()
     c.execute("INSERT INTO bets(username,category,table_no,bet_side,amount,created_at) VALUES(?,?,?,?,?,?)", (session.get("user"),d.get("category"),d.get("table_no"),d.get("bet_side"),d.get("amount",0),now()))
     c.commit(); c.close(); return jsonify({"success":True})
+
+
+def venue_rankings(cat):
+    """DG / MT 分開排行榜。"""
+    c = conn()
+    rows = c.execute("""SELECT category, table_no, COUNT(*) total,
+    SUM(CASE WHEN prediction IN ('莊','閒','和') AND record_type!='roadfill' THEN 1 ELSE 0 END) predicts,
+    SUM(CASE WHEN is_correct=1 THEN 1 ELSE 0 END) corrects
+    FROM game_records WHERE category=?
+    GROUP BY category, table_no ORDER BY total DESC""", (cat,)).fetchall()
+    c.close()
+    out = []
+    for r in rows:
+        predicts = r["predicts"] or 0
+        corrects = r["corrects"] or 0
+        hit = round(corrects / predicts * 100, 1) if predicts else 0
+        ai = ai_analysis(r["category"], r["table_no"])
+        score = round(hit * 0.5 + ai["confidence"] * 0.5, 1) if predicts else round(ai["confidence"] * 0.5, 1)
+        out.append({
+            "category": r["category"],
+            "table_no": r["table_no"],
+            "total": r["total"],
+            "predicts": predicts,
+            "hit_rate": hit,
+            "ai_confidence": ai["confidence"],
+            "suggest": ai["suggest"],
+            "tie_rate": ai.get("tie_rate", 0),
+            "lucky6_rate": ai.get("lucky6_rate", 0),
+            "score": score
+        })
+    return sorted(out, key=lambda x: x["score"], reverse=True)
+
+def abnormal_tables():
+    """異常桌警示：和局/幸運6/低命中/高風險。"""
+    warnings = []
+    for cat, tables in [("DG", DG_TABLES), ("MT", MT_TABLES)]:
+        for t in tables:
+            ai = ai_analysis(cat, t)
+            if ai.get("tie_rate", 0) >= 18:
+                warnings.append({"level":"和局偏高", "category":cat, "table_no":t, "message":f"和局率 {ai.get('tie_rate',0)}%，建議觀察"})
+            if ai.get("lucky6_rate", 0) >= 15:
+                warnings.append({"level":"幸運6偏高", "category":cat, "table_no":t, "message":f"幸運6率 {ai.get('lucky6_rate',0)}%，可列入提醒"})
+            if ai.get("risk") == "高" and ai.get("confidence",0) > 0:
+                warnings.append({"level":"高風險", "category":cat, "table_no":t, "message":f"AI信心 {ai.get('confidence',0)}%，風險高，避免重壓"})
+    return warnings[:30]
+
+def bet_performance():
+    """玩家下注績效統計。"""
+    c = conn()
+    rows = c.execute("""SELECT username, COUNT(*) total_bets, SUM(amount) total_amount
+                        FROM bets GROUP BY username ORDER BY total_bets DESC""").fetchall()
+    c.close()
+    return [{"username":r["username"], "total_bets":r["total_bets"], "total_amount":round(r["total_amount"] or 0, 2)} for r in rows]
+
+def recent_100_summary():
+    """最近100局整體分析。"""
+    c = conn()
+    rows = c.execute("SELECT * FROM game_records ORDER BY id DESC LIMIT 100").fetchall()
+    c.close()
+    if not rows:
+        return {"total":0,"banker":0,"player":0,"tie":0,"lucky6":0,"banker_rate":0,"player_rate":0,"tie_rate":0,"lucky6_rate":0}
+    total = len(rows)
+    banker = sum(1 for r in rows if r["result"] == "莊")
+    player = sum(1 for r in rows if r["result"] == "閒")
+    tie = sum(1 for r in rows if r["result"] == "和")
+    lucky = sum(1 for r in rows if r["lucky6"] == 1)
+    return {
+        "total": total,
+        "banker": banker,
+        "player": player,
+        "tie": tie,
+        "lucky6": lucky,
+        "banker_rate": round(banker/total*100,1),
+        "player_rate": round(player/total*100,1),
+        "tie_rate": round(tie/total*100,1),
+        "lucky6_rate": round(lucky/total*100,1)
+    }
+
 
 @app.route("/export-records")
 def export_records():
