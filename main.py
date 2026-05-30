@@ -4,7 +4,7 @@ import sqlite3, os, secrets, string, re
 from datetime import datetime, timedelta
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "baccarat_phase4b_secret")
+app.secret_key = os.environ.get("SECRET_KEY", "baccarat_phase4c_secret")
 DB = os.environ.get("DB_PATH", "baccarat_system.db")
 ADMIN_USER = os.environ.get("ADMIN_USER", "admin")
 ADMIN_PASS = os.environ.get("ADMIN_PASS", "Baccarat2026!")
@@ -114,6 +114,64 @@ def shared_model(cat):
         "lucky6_rate": round(l / total * 100, 1)
     }
 
+
+def risk_alerts(rows, ai_data):
+    """Phase4-C：AI提醒中心，提示和局、幸運6、過熱、反轉風險。"""
+    alerts = []
+    recent = rows[-20:]
+    pure = [r["result"] for r in recent if r["result"] in ["莊","閒"]]
+
+    if ai_data.get("tie_rate", 0) >= 14:
+        alerts.append("和局機率偏高，注意連續追莊閒風險")
+    if ai_data.get("lucky6_rate", 0) >= 12:
+        alerts.append("幸運6機率上升，可列入觀察")
+    if ai_data.get("confidence", 0) < 58:
+        alerts.append("AI信心不足，建議觀察或降低注碼")
+
+    if pure:
+        last = pure[-1]
+        streak = 1
+        for x in reversed(pure[:-1]):
+            if x == last:
+                streak += 1
+            else:
+                break
+        if streak >= 5:
+            alerts.append(f"{last}長龍{streak}，注意斷龍反轉")
+        elif streak >= 3:
+            alerts.append(f"{last}連{streak}，趨勢偏強但避免重壓")
+
+        changes = sum(1 for i in range(1, len(pure[-10:])) if pure[-10:][i] != pure[-10:][i-1])
+        if changes >= 7:
+            alerts.append("近期單跳明顯，反向波動增加")
+        elif changes >= 5:
+            alerts.append("近期跳路偏多，避免只看單一路型")
+
+    if not alerts:
+        alerts.append("目前無重大風險提醒")
+    return alerts
+
+def hit_summary():
+    """後台統計：今日、最近100局、最近1000局命中率。"""
+    c = conn()
+    today_prefix = datetime.now().strftime("%Y-%m-%d")
+    today_rows = c.execute("SELECT * FROM game_records WHERE created_at LIKE ? AND prediction IN ('莊','閒','和') AND record_type!='roadfill'", (today_prefix+'%',)).fetchall()
+    last100 = c.execute("SELECT * FROM game_records WHERE prediction IN ('莊','閒','和') AND record_type!='roadfill' ORDER BY id DESC LIMIT 100").fetchall()
+    last1000 = c.execute("SELECT * FROM game_records WHERE prediction IN ('莊','閒','和') AND record_type!='roadfill' ORDER BY id DESC LIMIT 1000").fetchall()
+    c.close()
+
+    def rate(rows):
+        if not rows:
+            return {"total":0,"correct":0,"rate":0}
+        correct = sum(1 for r in rows if r["is_correct"] == 1)
+        return {"total":len(rows),"correct":correct,"rate":round(correct/len(rows)*100,1)}
+
+    return {
+        "today": rate(today_rows),
+        "last100": rate(last100),
+        "last1000": rate(last1000)
+    }
+
 def ai_analysis(cat, table):
     c = conn(); w = get_weight(c, cat, table); rows = table_records(c, cat, table); c.close()
     windows = [calc_window(rows,n) for n in [10,20,50,100]]
@@ -149,7 +207,9 @@ def ai_analysis(cat, table):
     lucky_rate = round((l/max(1,len(recent))*100)*lw,1)
     risk = "低" if conf>=72 else "中" if conf>=60 else "高"
     shared_note = f"{cat}共享模型：莊{shared['banker_rate']}% / 閒{shared['player_rate']}% / 和{shared['tie_rate']}%，共享資料{shared['total']}局"
-    return {"suggest":sug,"confidence":round(conf,1),"banker_percent":bp,"player_percent":pp,"trend":"近期偏莊" if b>p else "近期偏閒" if p>b else "莊閒接近","reason":f"綜合最近10/20/50/100局、路型、本桌權重與{cat}共享模型；路型：{rp['name']}。{shared_note}。","tie_alert": tie_rate>=14 or sum(1 for r in rows[-10:] if r["result"]=="和")>=2,"lucky6_alert": lucky_rate>=12 or l>=3,"tie_rate":tie_rate,"lucky6_rate":lucky_rate,"windows":windows,"road_pattern":rp["name"],"risk":risk,"shared":shared}
+    data = {"suggest":sug,"confidence":round(conf,1),"banker_percent":bp,"player_percent":pp,"trend":"近期偏莊" if b>p else "近期偏閒" if p>b else "莊閒接近","reason":f"綜合最近10/20/50/100局、路型、本桌權重與{cat}共享模型；路型：{rp['name']}。{shared_note}。","tie_alert": tie_rate>=14 or sum(1 for r in rows[-10:] if r["result"]=="和")>=2,"lucky6_alert": lucky_rate>=12 or l>=3,"tie_rate":tie_rate,"lucky6_rate":lucky_rate,"windows":windows,"road_pattern":rp["name"],"risk":risk,"shared":shared}
+    data["alerts"] = risk_alerts(rows, data)
+    return data
 
 def update_weight(cat, table, result, pred, manual, record_type, l6):
     if record_type == "roadfill": return
@@ -263,7 +323,7 @@ def admin():
     SUM(CASE WHEN is_correct=1 THEN 1 ELSE 0 END) corrects
     FROM game_records GROUP BY category,table_no ORDER BY category,table_no""").fetchall()
     c.close()
-    return render_template("admin.html", users=users, agents=agents, serials=serials, weights=weights, records=records, total_records=total_records, manual_records=manual_records, roadfill_records=roadfill_records, predict_count=predict_count, hit_rate=hit_rate, table_stats=table_stats, best_tables=best_tables(10), is_super=is_admin(), agent_user=session.get("agent_user"))
+    return render_template("admin.html", users=users, agents=agents, serials=serials, weights=weights, records=records, total_records=total_records, manual_records=manual_records, roadfill_records=roadfill_records, predict_count=predict_count, hit_rate=hit_rate, table_stats=table_stats, best_tables=best_tables(10), hit_summary=hit_summary(), is_super=is_admin(), agent_user=session.get("agent_user"))
 
 @app.route("/add-user", methods=["POST"])
 def add_user():
