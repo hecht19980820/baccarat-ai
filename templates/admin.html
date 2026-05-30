@@ -1,20 +1,20 @@
-<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>管理後台 Phase5</title><link rel="stylesheet" href="/static/style.css"></head><body>
-<header><b>Baccarat AI 管理後台 Phase5</b><nav>{% if agent_user %}<span>代理：{{agent_user}}</span>{% endif %}<a href="/">玩家端</a><a href="/admin-logout">登出</a></nav></header>
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>管理後台 Phase6-7</title><link rel="stylesheet" href="/static/style.css"></head><body>
+<header><b>Baccarat AI 管理後台 Phase6-7</b><nav>{% if agent_user %}<span>代理：{{agent_user}}</span>{% endif %}<a href="/">玩家端</a><a href="/admin-logout">登出</a></nav></header>
 <main class="wrap">
 <section class="card">
-<h2>Phase5 AI推薦桌中心</h2>
+<h2>Phase6-7 AI推薦桌中心</h2>
 <table>
-<tr><th>星級</th><th>廳別</th><th>桌號</th><th>推薦</th><th>AI信心</th><th>命中率</th><th>綜合分</th><th>風險</th><th>和局</th><th>幸運6</th><th>總資料</th></tr>
+<tr><th>星級</th><th>廳別</th><th>桌號</th><th>推薦</th><th>AI信心</th><th>命中率</th><th>綜合分</th><th>風險</th><th>連輸</th><th>保護</th><th>和局</th><th>幸運6</th><th>總資料</th></tr>
 {% for r in recommended_tables %}
 <tr>
-<td>{{r.stars}}</td><td>{{r.category}}</td><td>{{r.table_no}}</td><td>{{r.suggest}}</td><td>{{r.confidence}}%</td><td>{{r.hit_rate}}%</td><td>{{r.score}}</td><td>{{r.risk}}</td><td>{{r.tie_rate}}%</td><td>{{r.lucky6_rate}}%</td><td>{{r.total}}</td>
+<td>{{r.stars}}</td><td>{{r.category}}</td><td>{{r.table_no}}</td><td>{{r.suggest}}</td><td>{{r.confidence}}%</td><td>{{r.hit_rate}}%</td><td>{{r.score}}</td><td>{{r.risk}}</td><td>{{r.loss_streak}}</td><td>{% if r.protect %}啟動{% else %}正常{% endif %}</td><td>{{r.tie_rate}}%</td><td>{{r.lucky6_rate}}%</td><td>{{r.total}}</td>
 </tr>
 {% endfor %}
 </table>
 </section>
 
 <section class="card">
-<h2>Phase5 模型回測中心</h2>
+<h2>Phase6-7 模型回測中心</h2>
 <div class="kpi">
 <div class="box">最近100局<br><b>{{phase5_backtest.last100.rate}}%</b><br><span class="muted">{{phase5_backtest.last100.correct}} / {{phase5_backtest.last100.total}}</span></div>
 <div class="box">最近500局<br><b>{{phase5_backtest.last500.rate}}%</b><br><span class="muted">{{phase5_backtest.last500.correct}} / {{phase5_backtest.last500.total}}</span></div>
@@ -46,7 +46,7 @@
 </section>
 
 <section class="card">
-<h2>Phase5 AI 分析中心</h2>
+<h2>Phase6-7 AI 分析中心</h2>
 
 <h3>最近100局整體分析</h3>
 <div class="kpi">

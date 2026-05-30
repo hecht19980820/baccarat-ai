@@ -4,7 +4,7 @@ import sqlite3, os, secrets, string, re, csv, io
 from datetime import datetime, timedelta
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "baccarat_phase5_secret")
+app.secret_key = os.environ.get("SECRET_KEY", "baccarat_phase7_secret")
 DB = os.environ.get("DB_PATH", "baccarat_system.db")
 ADMIN_USER = os.environ.get("ADMIN_USER", "admin")
 ADMIN_PASS = os.environ.get("ADMIN_PASS", "Baccarat2026!")
@@ -209,6 +209,7 @@ def ai_analysis(cat, table):
     shared_note = f"{cat}共享模型：莊{shared['banker_rate']}% / 閒{shared['player_rate']}% / 和{shared['tie_rate']}%，共享資料{shared['total']}局"
     data = {"suggest":sug,"confidence":round(conf,1),"banker_percent":bp,"player_percent":pp,"trend":"近期偏莊" if b>p else "近期偏閒" if p>b else "莊閒接近","reason":f"綜合最近10/20/50/100局、路型、本桌權重與{cat}共享模型；路型：{rp['name']}。{shared_note}。","tie_alert": tie_rate>=14 or sum(1 for r in rows[-10:] if r["result"]=="和")>=2,"lucky6_alert": lucky_rate>=12 or l>=3,"tie_rate":tie_rate,"lucky6_rate":lucky_rate,"windows":windows,"road_pattern":rp["name"],"risk":risk,"shared":shared}
     data["alerts"] = risk_alerts(rows, data)
+    data = phase7_fusion_enhance(data, cat, table)
     return data
 
 def update_weight(cat, table, result, pred, manual, record_type, l6):
@@ -323,7 +324,7 @@ def admin():
     SUM(CASE WHEN is_correct=1 THEN 1 ELSE 0 END) corrects
     FROM game_records GROUP BY category,table_no ORDER BY category,table_no""").fetchall()
     c.close()
-    return render_template("admin.html", users=users, agents=agents, serials=serials, weights=weights, records=records, total_records=total_records, manual_records=manual_records, roadfill_records=roadfill_records, predict_count=predict_count, hit_rate=hit_rate, table_stats=table_stats, best_tables=best_tables(10), dg_rankings=venue_rankings("DG"), mt_rankings=venue_rankings("MT"), abnormal_tables=abnormal_tables(), bet_performance=bet_performance(), recent_100=recent_100_summary(), hit_summary=hit_summary(), agent_ops=agent_ops_summary(), recommended_tables=phase5_recommended_tables(12), phase5_backtest=phase5_backtest(), is_super=is_admin(), agent_user=session.get("agent_user"))
+    return render_template("admin.html", users=users, agents=agents, serials=serials, weights=weights, records=records, total_records=total_records, manual_records=manual_records, roadfill_records=roadfill_records, predict_count=predict_count, hit_rate=hit_rate, table_stats=table_stats, best_tables=best_tables(10), dg_rankings=venue_rankings("DG"), mt_rankings=venue_rankings("MT"), abnormal_tables=abnormal_tables(), bet_performance=bet_performance(), recent_100=recent_100_summary(), hit_summary=hit_summary(), agent_ops=agent_ops_summary(), recommended_tables=phase6e_recommended_tables(12), phase5_backtest=phase5_backtest(), is_super=is_admin(), agent_user=session.get("agent_user"))
 
 @app.route("/add-user", methods=["POST"])
 def add_user():
@@ -490,7 +491,7 @@ def recent_100_summary():
 
 
 def agent_ops_summary():
-    """Phase5：代理營運中心統計。"""
+    """Phase6-7：代理營運中心統計。"""
     c = conn()
     today_prefix = datetime.now().strftime("%Y-%m-%d")
     soon_date = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
@@ -569,7 +570,7 @@ def void_serial(serial_id):
 
 
 def phase5_recommended_tables(limit=12):
-    """Phase5 AI推薦桌：依AI信心、命中率、資料量與風險排序。"""
+    """Phase6-7 AI推薦桌：依AI信心、命中率、資料量與風險排序。"""
     out = []
     for cat, tables in [("DG", DG_TABLES), ("MT", MT_TABLES)]:
         for t in tables:
@@ -604,7 +605,7 @@ def phase5_recommended_tables(limit=12):
     return sorted(out, key=lambda x: x["score"], reverse=True)[:limit]
 
 def phase5_backtest():
-    """Phase5回測：最近100/500/1000局AI命中率。"""
+    """Phase6-7回測：最近100/500/1000局AI命中率。"""
     c = conn()
     result = {}
     for name, limit in [("last100", 100), ("last500", 500), ("last1000", 1000)]:
@@ -616,6 +617,192 @@ def phase5_backtest():
         result[name] = {"total": total, "correct": correct, "rate": round(correct / total * 100, 1) if total else 0}
     c.close()
     return result
+
+
+def global_model():
+    """Phase7 全站共享模型：全部 DG/MT 資料一起計算。"""
+    c = conn()
+    rows = c.execute("SELECT * FROM game_records ORDER BY id ASC").fetchall()
+    c.close()
+    if not rows:
+        return {"total":0,"banker_rate":0,"player_rate":0,"tie_rate":0,"lucky6_rate":0}
+    recent = rows[-1000:]
+    total = max(1, len(recent))
+    b = sum(1 for r in recent if r["result"] == "莊")
+    p = sum(1 for r in recent if r["result"] == "閒")
+    t = sum(1 for r in recent if r["result"] == "和")
+    l = sum(1 for r in recent if r["lucky6"] == 1)
+    return {
+        "total": len(recent),
+        "banker_rate": round(b/total*100,1),
+        "player_rate": round(p/total*100,1),
+        "tie_rate": round(t/total*100,1),
+        "lucky6_rate": round(l/total*100,1)
+    }
+
+def model_recent_hit_rate(cat=None, table=None, limit=200):
+    """計算某模型資料的近期命中率，用於自動學習權重調整。"""
+    c = conn()
+    where = "WHERE prediction IN ('莊','閒','和') AND record_type!='roadfill'"
+    args = []
+    if cat:
+        where += " AND category=?"
+        args.append(cat)
+    if table:
+        where += " AND table_no=?"
+        args.append(table)
+    rows = c.execute(f"SELECT * FROM game_records {where} ORDER BY id DESC LIMIT ?", (*args, limit)).fetchall()
+    c.close()
+    if not rows:
+        return {"total":0,"correct":0,"rate":0}
+    correct = sum(1 for r in rows if r["is_correct"] == 1)
+    return {"total":len(rows), "correct":correct, "rate":round(correct/len(rows)*100,1)}
+
+def auto_learning_multiplier(cat, table):
+    """Phase6-A：依近期命中率自動調整模型影響力。"""
+    table_rate = model_recent_hit_rate(cat, table, 200)
+    venue_rate = model_recent_hit_rate(cat, None, 500)
+    global_rate = model_recent_hit_rate(None, None, 1000)
+
+    def mult(rate):
+        r = rate.get("rate", 0)
+        total = rate.get("total", 0)
+        if total < 20:
+            return 1.0
+        if r >= 62:
+            return 1.18
+        if r >= 56:
+            return 1.08
+        if r <= 45:
+            return 0.82
+        if r <= 50:
+            return 0.92
+        return 1.0
+
+    return {
+        "table": mult(table_rate),
+        "venue": mult(venue_rate),
+        "global": mult(global_rate),
+        "table_rate": table_rate,
+        "venue_rate": venue_rate,
+        "global_rate": global_rate
+    }
+
+def losing_streak_status(cat, table):
+    """Phase6-C：連輸保護。"""
+    c = conn()
+    rows = c.execute("""SELECT * FROM game_records
+        WHERE category=? AND table_no=? AND prediction IN ('莊','閒','和') AND record_type!='roadfill'
+        ORDER BY id DESC LIMIT 10""", (cat, table)).fetchall()
+    c.close()
+    loss = 0
+    for r in rows:
+        if r["is_correct"] == 0:
+            loss += 1
+        else:
+            break
+    if loss >= 3:
+        return {"loss_streak": loss, "protect": True, "message": f"AI連輸{loss}把，建議觀察2局或降低注碼"}
+    if loss == 2:
+        return {"loss_streak": loss, "protect": False, "message": "AI已連輸2把，下一局降低風險"}
+    return {"loss_streak": loss, "protect": False, "message": "連輸狀態正常"}
+
+def phase7_fusion_enhance(ai_data, cat, table):
+    """整合 Phase6-A + Phase7：桌號、廳別共享、全站共享、近期命中率自動調權。"""
+    g = global_model()
+    alm = auto_learning_multiplier(cat, table)
+    protect = losing_streak_status(cat, table)
+
+    banker = float(ai_data.get("banker_percent", 0))
+    player = float(ai_data.get("player_percent", 0))
+
+    # 基礎：原AI佔70%，全站模型佔30%，並套用自動學習係數
+    global_pair = max(1, g["banker_rate"] + g["player_rate"])
+    gb = g["banker_rate"] / global_pair * 100 if global_pair else 50
+    gp = g["player_rate"] / global_pair * 100 if global_pair else 50
+
+    table_mult = alm["table"]
+    venue_mult = alm["venue"]
+    global_mult = alm["global"]
+
+    banker2 = banker * 0.70 * table_mult + gb * 0.30 * global_mult
+    player2 = player * 0.70 * table_mult + gp * 0.30 * global_mult
+
+    total = max(1, banker2 + player2)
+    bp = round(banker2 / total * 100, 1)
+    pp = round(player2 / total * 100, 1)
+
+    if bp > pp + 4:
+        suggest = "莊"
+        confidence = bp
+    elif pp > bp + 4:
+        suggest = "閒"
+        confidence = pp
+    else:
+        suggest = "觀察"
+        confidence = max(bp, pp)
+
+    risk = ai_data.get("risk", "高")
+    if protect["protect"]:
+        risk = "高"
+        confidence = min(confidence, 55)
+
+    ai_data["suggest"] = suggest
+    ai_data["confidence"] = round(confidence, 1)
+    ai_data["banker_percent"] = bp
+    ai_data["player_percent"] = pp
+    ai_data["risk"] = risk
+    ai_data["global_model"] = g
+    ai_data["auto_learning"] = alm
+    ai_data["losing_protection"] = protect
+
+    alerts = ai_data.get("alerts", [])
+    alerts.append(f"全站共享模型：莊{g['banker_rate']}% / 閒{g['player_rate']}% / 和{g['tie_rate']}%，資料{g['total']}局")
+    alerts.append(f"自動學習係數：桌號{alm['table']} / 廳別{alm['venue']} / 全站{alm['global']}")
+    if protect["message"]:
+        alerts.append(protect["message"])
+    ai_data["alerts"] = alerts
+
+    ai_data["reason"] = ai_data.get("reason", "") + f" Phase7加入全站共享模型與自動學習權重；{protect['message']}。"
+    return ai_data
+
+def phase6e_recommended_tables(limit=12):
+    """Phase6-E：推薦桌強化，加入全站模型、連輸保護、風險、資料量。"""
+    out = []
+    for cat, tables in [("DG", DG_TABLES), ("MT", MT_TABLES)]:
+        for t in tables:
+            ai = ai_analysis(cat, t)
+            protect = losing_streak_status(cat, t)
+            c = conn()
+            stat = c.execute("""SELECT
+                COUNT(*) total,
+                SUM(CASE WHEN prediction IN ('莊','閒','和') AND record_type!='roadfill' THEN 1 ELSE 0 END) predicts,
+                SUM(CASE WHEN is_correct=1 THEN 1 ELSE 0 END) corrects
+                FROM game_records WHERE category=? AND table_no=?""", (cat, t)).fetchone()
+            c.close()
+            predicts = stat["predicts"] or 0
+            corrects = stat["corrects"] or 0
+            hit = round(corrects / predicts * 100, 1) if predicts else 0
+            risk_penalty = 18 if protect["protect"] else 0
+            risk_penalty += 0 if ai.get("risk") == "低" else 6 if ai.get("risk") == "中" else 12
+            score = round(ai.get("confidence",0)*0.45 + hit*0.30 + min(stat["total"] or 0, 200)*0.08 + (100-ai.get("tie_rate",0))*0.07 + (100-ai.get("lucky6_rate",0))*0.10 - risk_penalty, 1)
+            stars = "★★★★★" if score >= 75 else "★★★★☆" if score >= 65 else "★★★☆☆" if score >= 55 else "★★☆☆☆"
+            out.append({
+                "category": cat,
+                "table_no": t,
+                "suggest": ai.get("suggest","觀察"),
+                "confidence": ai.get("confidence",0),
+                "hit_rate": hit,
+                "score": score,
+                "stars": stars,
+                "risk": ai.get("risk","高"),
+                "tie_rate": ai.get("tie_rate",0),
+                "lucky6_rate": ai.get("lucky6_rate",0),
+                "loss_streak": protect["loss_streak"],
+                "protect": protect["protect"],
+                "total": stat["total"] or 0
+            })
+    return sorted(out, key=lambda x: x["score"], reverse=True)[:limit]
 
 @app.route("/export-records")
 def export_records():

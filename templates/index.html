@@ -1,8 +1,8 @@
 <!doctype html>
 <html lang="zh-Hant">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Baccarat AI Phase5</title><link rel="stylesheet" href="/static/style.css"></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Baccarat AI Phase6-7</title><link rel="stylesheet" href="/static/style.css"></head>
 <body>
-<header><b>Baccarat AI 玩家端 Phase5</b><nav><span>{{user}}</span><a href="/player-logout">登出</a><a href="/admin-login">管理後台</a></nav></header>
+<header><b>Baccarat AI 玩家端 Phase6-7</b><nav><span>{{user}}</span><a href="/player-logout">登出</a><a href="/admin-login">管理後台</a></nav></header>
 <main class="wrap grid">
 <section class="card">
 <h2>桌號選擇</h2><div class="row"><select id="category"><option>DG</option><option>MT</option></select><select id="table_no"></select><button onclick="clearFront()">清除此桌畫面</button><button class="warn" onclick="undoLast()">撤回最後一局</button></div>
@@ -13,12 +13,12 @@
 <h2>大路盤</h2><div id="road" class="road"></div>
 </section>
 <section class="card">
-<h2>AI 建議方向</h2><p class="muted">Phase5功能：AI推薦桌與模型回測已加入管理後台。</p><div class="suggest" id="suggest">觀察</div>
+<h2>AI 建議方向</h2><p class="muted">Phase6-7功能：AI推薦桌與模型回測已加入管理後台。</p><div class="suggest" id="suggest">觀察</div>
 <div class="percent-row"><div class="percent-box banker-line">莊 <b id="banker_percent">0%</b></div><div class="percent-box player-line">閒 <b id="player_percent">0%</b></div></div>
 <div>信心值：<b id="confidence">0%</b>　風險：<b id="risk">高</b></div>
 <div>趨勢：<b id="trend">資料不足</b></div><div>路型：<b id="road_pattern">資料不足</b></div>
 <div>和局率：<b id="tie_rate">0%</b> / 幸運6率：<b id="lucky_rate">0%</b></div>
-  <div>共享模型：<b id="shared_model">資料不足</b></div><p class="muted" id="reason"></p><div id="alerts"></div><h3>AI提醒中心 / Phase5</h3><div id="alert_list" class="alert-list"></div>
+  <div>共享模型：<b id="shared_model">資料不足</b></div><div>Phase7全站共享模型：<b id="global_model">資料不足</b></div><div>連輸保護：<b id="loss_protect">正常</b></div><p class="muted" id="reason"></p><div id="alerts"></div><h3>AI提醒中心 / Phase6-7</h3><div id="alert_list" class="alert-list"></div>
 <h3>最近 N 局分析</h3><div id="windows" class="window-grid"></div>
 <h3>下注紀錄</h3><div class="row"><select id="bet_side"><option>莊</option><option>閒</option><option>和</option><option>幸運6</option></select><input id="amount" type="number" placeholder="金額"><button onclick="saveBet()">紀錄下注</button></div>
 </section>
@@ -28,7 +28,7 @@ const DG={{ dg_tables|tojson }}; const MT={{ mt_tables|tojson }}; let records=[]
 function tables(){const c=category.value; table_no.innerHTML=''; (c==='DG'?DG:MT).forEach(x=>{let o=document.createElement('option');o.value=x;o.textContent=x;table_no.appendChild(o);});}
 category.onchange=()=>{tables();load();}; table_no.onchange=load;
 function render(){road.innerHTML=''; records.forEach(r=>{let d=document.createElement('div'); d.className='cell '+(r.result==='莊'?'b':r.result==='閒'?'p':'t'); d.textContent=r.result; if(r.record_type==='roadfill') d.classList.add('fill'); road.appendChild(d);});}
-function ai(a){suggest.textContent=a.suggest||'觀察'; confidence.textContent=(a.confidence||0)+'%'; banker_percent.textContent=(a.banker_percent||0)+'%'; player_percent.textContent=(a.player_percent||0)+'%'; trend.textContent=a.trend||'資料不足'; road_pattern.textContent=a.road_pattern||'資料不足'; risk.textContent=a.risk||'高'; tie_rate.textContent=(a.tie_rate||0)+'%'; lucky_rate.textContent=(a.lucky6_rate||0)+'%'; reason.textContent=a.reason||''; shared_model.textContent = a.shared ? (`莊 ${a.shared.banker_rate}% / 閒 ${a.shared.player_rate}% / 共享 ${a.shared.total} 局`) : '資料不足'; alert_list.innerHTML = (a.alerts||[]).map(x=>`<div class="alert">${x}</div>`).join(''); alerts.innerHTML=(a.tie_alert?'<div class="alert">AI提醒：本桌近期和局機率偏高</div>':'')+(a.lucky6_alert?'<div class="alert">AI提醒：本桌幸運6機率偏高</div>':''); windows.innerHTML=''; (a.windows||[]).forEach(w=>{let div=document.createElement('div'); div.className='window-card'; div.innerHTML=`<b>最近${w.n}局</b><br>莊 ${w.banker_rate}% / 閒 ${w.player_rate}% / 和 ${w.tie_rate}%<br><span class="muted">資料 ${w.total} 局</span>`; windows.appendChild(div);});}
+function ai(a){suggest.textContent=a.suggest||'觀察'; confidence.textContent=(a.confidence||0)+'%'; banker_percent.textContent=(a.banker_percent||0)+'%'; player_percent.textContent=(a.player_percent||0)+'%'; trend.textContent=a.trend||'資料不足'; road_pattern.textContent=a.road_pattern||'資料不足'; risk.textContent=a.risk||'高'; tie_rate.textContent=(a.tie_rate||0)+'%'; lucky_rate.textContent=(a.lucky6_rate||0)+'%'; reason.textContent=a.reason||''; shared_model.textContent = a.shared ? (`莊 ${a.shared.banker_rate}% / 閒 ${a.shared.player_rate}% / 共享 ${a.shared.total} 局`) : '資料不足'; global_model.textContent = a.global_model ? (`莊 ${a.global_model.banker_rate}% / 閒 ${a.global_model.player_rate}% / 全站 ${a.global_model.total} 局`) : '資料不足'; loss_protect.textContent = a.losing_protection ? a.losing_protection.message : '正常'; alert_list.innerHTML = (a.alerts||[]).map(x=>`<div class="alert">${x}</div>`).join(''); alerts.innerHTML=(a.tie_alert?'<div class="alert">AI提醒：本桌近期和局機率偏高</div>':'')+(a.lucky6_alert?'<div class="alert">AI提醒：本桌幸運6機率偏高</div>':''); windows.innerHTML=''; (a.windows||[]).forEach(w=>{let div=document.createElement('div'); div.className='window-card'; div.innerHTML=`<b>最近${w.n}局</b><br>莊 ${w.banker_rate}% / 閒 ${w.player_rate}% / 和 ${w.tie_rate}%<br><span class="muted">資料 ${w.total} 局</span>`; windows.appendChild(div);});}
 async function load(){let r=await fetch(`/api/table?category=${category.value}&table_no=${table_no.value}`); if(r.status===401){location.href='/login';return;} let j=await r.json(); records=j.records||[]; render(); ai(j.ai||{});}
 async function addResult(result){await fetch('/add-record',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({category:category.value,table_no:table_no.value,result,is_manual:0,record_type:'normal'})}); await load();}
 async function manualPattern(){await fetch('/add-record',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({category:category.value,table_no:table_no.value,result:manual_result.value,pattern:pattern.value,is_manual:1,record_type:'pattern'})}); pattern.value=''; await load();}
