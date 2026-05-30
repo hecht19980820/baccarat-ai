@@ -4,7 +4,7 @@ import sqlite3, os, secrets, string, re, csv, io
 from datetime import datetime, timedelta
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "baccarat_phase4e_secret")
+app.secret_key = os.environ.get("SECRET_KEY", "baccarat_phase4f_secret")
 DB = os.environ.get("DB_PATH", "baccarat_system.db")
 ADMIN_USER = os.environ.get("ADMIN_USER", "admin")
 ADMIN_PASS = os.environ.get("ADMIN_PASS", "Baccarat2026!")
@@ -323,7 +323,7 @@ def admin():
     SUM(CASE WHEN is_correct=1 THEN 1 ELSE 0 END) corrects
     FROM game_records GROUP BY category,table_no ORDER BY category,table_no""").fetchall()
     c.close()
-    return render_template("admin.html", users=users, agents=agents, serials=serials, weights=weights, records=records, total_records=total_records, manual_records=manual_records, roadfill_records=roadfill_records, predict_count=predict_count, hit_rate=hit_rate, table_stats=table_stats, best_tables=best_tables(10), dg_rankings=venue_rankings("DG"), mt_rankings=venue_rankings("MT"), abnormal_tables=abnormal_tables(), bet_performance=bet_performance(), recent_100=recent_100_summary(), hit_summary=hit_summary(), is_super=is_admin(), agent_user=session.get("agent_user"))
+    return render_template("admin.html", users=users, agents=agents, serials=serials, weights=weights, records=records, total_records=total_records, manual_records=manual_records, roadfill_records=roadfill_records, predict_count=predict_count, hit_rate=hit_rate, table_stats=table_stats, best_tables=best_tables(10), dg_rankings=venue_rankings("DG"), mt_rankings=venue_rankings("MT"), abnormal_tables=abnormal_tables(), bet_performance=bet_performance(), recent_100=recent_100_summary(), hit_summary=hit_summary(), agent_ops=agent_ops_summary(), is_super=is_admin(), agent_user=session.get("agent_user"))
 
 @app.route("/add-user", methods=["POST"])
 def add_user():
@@ -487,6 +487,85 @@ def recent_100_summary():
         "lucky6_rate": round(lucky/total*100,1)
     }
 
+
+
+def agent_ops_summary():
+    """Phase4-F：代理營運中心統計。"""
+    c = conn()
+    today_prefix = datetime.now().strftime("%Y-%m-%d")
+    soon_date = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
+
+    total_users = c.execute("SELECT COUNT(*) c FROM users").fetchone()["c"]
+    active_users = c.execute("SELECT COUNT(*) c FROM users WHERE status='active' AND expire_date>=?", (today(),)).fetchone()["c"]
+    expired_users = c.execute("SELECT COUNT(*) c FROM users WHERE expire_date<? OR status!='active'", (today(),)).fetchone()["c"]
+    expiring_soon = c.execute("SELECT COUNT(*) c FROM users WHERE status='active' AND expire_date>=? AND expire_date<=?", (today(), soon_date)).fetchone()["c"]
+    today_records = c.execute("SELECT COUNT(*) c FROM game_records WHERE created_at LIKE ?", (today_prefix+"%",)).fetchone()["c"]
+    unused_serials = c.execute("SELECT COUNT(*) c FROM serials WHERE status='unused'").fetchone()["c"]
+    used_serials = c.execute("SELECT COUNT(*) c FROM serials WHERE status='used'").fetchone()["c"]
+
+    agent_rows = c.execute("""
+        SELECT a.username,
+               COUNT(u.id) AS player_count,
+               SUM(CASE WHEN u.status='active' AND u.expire_date>=? THEN 1 ELSE 0 END) AS active_count,
+               SUM(CASE WHEN u.expire_date<? OR u.status!='active' THEN 1 ELSE 0 END) AS expired_count,
+               SUM(CASE WHEN s.status='unused' THEN 1 ELSE 0 END) AS unused_serials
+        FROM agents a
+        LEFT JOIN users u ON u.agent=a.username
+        LEFT JOIN serials s ON s.agent=a.username
+        GROUP BY a.username
+        ORDER BY player_count DESC
+    """, (today(), today())).fetchall()
+
+    expiring_rows = c.execute("""
+        SELECT username, agent, expire_date, role, status
+        FROM users
+        WHERE status='active' AND expire_date>=? AND expire_date<=?
+        ORDER BY expire_date ASC
+        LIMIT 50
+    """, (today(), soon_date)).fetchall()
+
+    c.close()
+    return {
+        "total_users": total_users,
+        "active_users": active_users,
+        "expired_users": expired_users,
+        "expiring_soon": expiring_soon,
+        "today_records": today_records,
+        "unused_serials": unused_serials,
+        "used_serials": used_serials,
+        "agents": [dict(r) for r in agent_rows],
+        "expiring_users": [dict(r) for r in expiring_rows]
+    }
+
+
+@app.route("/toggle-user/<int:user_id>")
+def toggle_user(user_id):
+    if not (is_admin() or is_agent()):
+        return redirect("/admin-login")
+    c = conn()
+    if is_agent():
+        row = c.execute("SELECT * FROM users WHERE id=? AND agent=?", (user_id, session.get("agent_user"))).fetchone()
+    else:
+        row = c.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
+    if row:
+        new_status = "disabled" if row["status"] == "active" else "active"
+        c.execute("UPDATE users SET status=? WHERE id=?", (new_status, user_id))
+        c.commit()
+    c.close()
+    return redirect("/admin")
+
+@app.route("/void-serial/<int:serial_id>")
+def void_serial(serial_id):
+    if not (is_admin() or is_agent()):
+        return redirect("/admin-login")
+    c = conn()
+    if is_agent():
+        c.execute("UPDATE serials SET status='void' WHERE id=? AND agent=? AND status='unused'", (serial_id, session.get("agent_user")))
+    else:
+        c.execute("UPDATE serials SET status='void' WHERE id=? AND status='unused'", (serial_id,))
+    c.commit()
+    c.close()
+    return redirect("/admin")
 
 @app.route("/export-records")
 def export_records():
