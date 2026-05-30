@@ -1,7 +1,27 @@
-<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>管理後台 Phase4-C</title><link rel="stylesheet" href="/static/style.css"></head><body>
-<header><b>Baccarat AI 管理後台 Phase4-C</b><nav>{% if agent_user %}<span>代理：{{agent_user}}</span>{% endif %}<a href="/">玩家端</a><a href="/admin-logout">登出</a></nav></header>
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>管理後台 Phase4-D</title><link rel="stylesheet" href="/static/style.css"></head><body>
+<header><b>Baccarat AI 管理後台 Phase4-D</b><nav>{% if agent_user %}<span>代理：{{agent_user}}</span>{% endif %}<a href="/">玩家端</a><a href="/admin-logout">登出</a></nav></header>
 <main class="wrap">
 <div class="kpi"><div class="box">總牌局<br><b>{{total_records}}</b></div><div class="box">牌型/手動資料<br><b>{{manual_records}}</b></div><div class="box">補大路盤<br><b>{{roadfill_records}}</b></div><div class="box">命中率<br><b>{{hit_rate}}%</b></div></div>
+
+<section class="card">
+<h2>資料管理中心</h2>
+<div class="row">
+  <a class="button-link" href="/export-records">匯出最近資料 CSV</a>
+  <a class="button-link" href="/export-table-stats">匯出各桌統計 CSV</a>
+</div>
+<hr>
+<form class="row" method="post" action="/rebuild-table-ai">
+  <select name="category"><option>DG</option><option>MT</option></select>
+  <input name="table_no" placeholder="桌號，例如 RB01 / 3A">
+  <button>重算此桌 AI 權重</button>
+</form>
+<form class="row" method="post" action="/clear-roadfill-table" onsubmit="return confirm('只會刪除指定桌的補大路盤資料，不刪牌型與AI學習，確定？')">
+  <select name="category"><option>DG</option><option>MT</option></select>
+  <input name="table_no" placeholder="桌號，例如 RB01 / 3A">
+  <button class="warn">清除指定桌補大路盤</button>
+</form>
+<p class="muted">匯出不影響系統；重算AI會依現有資料重新計算權重；清補路只刪 record_type=roadfill。</p>
+</section>
 <section class="card"><h2>AI 命中率統計</h2>
 <div class="kpi">
 <div class="box">今日命中率<br><b>{{hit_summary.today.rate}}%</b><br><span class="muted">{{hit_summary.today.correct}} / {{hit_summary.today.total}}</span></div>

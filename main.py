@@ -1,10 +1,10 @@
 
-from flask import Flask, render_template, request, jsonify, redirect, session
-import sqlite3, os, secrets, string, re
+from flask import Flask, render_template, request, jsonify, redirect, session, Response
+import sqlite3, os, secrets, string, re, csv, io
 from datetime import datetime, timedelta
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "baccarat_phase4c_secret")
+app.secret_key = os.environ.get("SECRET_KEY", "baccarat_phase4d_secret")
 DB = os.environ.get("DB_PATH", "baccarat_system.db")
 ADMIN_USER = os.environ.get("ADMIN_USER", "admin")
 ADMIN_PASS = os.environ.get("ADMIN_PASS", "Baccarat2026!")
@@ -409,6 +409,79 @@ def add_bet():
     d=request.json or {}; c=conn()
     c.execute("INSERT INTO bets(username,category,table_no,bet_side,amount,created_at) VALUES(?,?,?,?,?,?)", (session.get("user"),d.get("category"),d.get("table_no"),d.get("bet_side"),d.get("amount",0),now()))
     c.commit(); c.close(); return jsonify({"success":True})
+
+@app.route("/export-records")
+def export_records():
+    if not (is_admin() or is_agent()):
+        return redirect("/admin-login")
+    c = conn()
+    rows = c.execute("SELECT * FROM game_records ORDER BY id DESC LIMIT 5000").fetchall()
+    c.close()
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["ID","廳別","桌號","結果","類型","牌型","手動","預測","AI分數","命中","幸運6","建立者","時間"])
+    for r in rows:
+        writer.writerow([r["id"],r["category"],r["table_no"],r["result"],r["record_type"],r["pattern"],r["is_manual"],r["prediction"],r["ai_score"],r["is_correct"],r["lucky6"],r["created_by"],r["created_at"]])
+    return Response(output.getvalue(), mimetype="text/csv; charset=utf-8", headers={"Content-Disposition":"attachment; filename=baccarat_records.csv"})
+
+@app.route("/export-table-stats")
+def export_table_stats():
+    if not (is_admin() or is_agent()):
+        return redirect("/admin-login")
+    c = conn()
+    rows = c.execute("""SELECT category,table_no,COUNT(*) total,
+    SUM(CASE WHEN result='莊' THEN 1 ELSE 0 END) banker,
+    SUM(CASE WHEN result='閒' THEN 1 ELSE 0 END) player,
+    SUM(CASE WHEN result='和' THEN 1 ELSE 0 END) tie_count,
+    SUM(CASE WHEN prediction IN ('莊','閒','和') AND record_type!='roadfill' THEN 1 ELSE 0 END) predicts,
+    SUM(CASE WHEN is_correct=1 THEN 1 ELSE 0 END) corrects
+    FROM game_records GROUP BY category,table_no ORDER BY category,table_no""").fetchall()
+    c.close()
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["廳別","桌號","總局","莊","閒","和","預測次數","命中","勝率"])
+    for r in rows:
+        predicts = r["predicts"] or 0
+        corrects = r["corrects"] or 0
+        rate = round(corrects / predicts * 100, 1) if predicts else 0
+        writer.writerow([r["category"],r["table_no"],r["total"],r["banker"],r["player"],r["tie_count"],predicts,corrects,str(rate)+"%"])
+    return Response(output.getvalue(), mimetype="text/csv; charset=utf-8", headers={"Content-Disposition":"attachment; filename=baccarat_table_stats.csv"})
+
+@app.route("/rebuild-table-ai", methods=["POST"])
+def rebuild_table_ai():
+    if not (is_admin() or is_agent()):
+        return redirect("/admin-login")
+    cat = request.form.get("category","DG")
+    table = request.form.get("table_no","RB01")
+    rebuild_weight(cat, table)
+    return redirect("/admin")
+
+@app.route("/clear-roadfill-table", methods=["POST"])
+def clear_roadfill_table():
+    if not (is_admin() or is_agent()):
+        return redirect("/admin-login")
+    cat = request.form.get("category","DG")
+    table = request.form.get("table_no","RB01")
+    c = conn()
+    c.execute("DELETE FROM game_records WHERE category=? AND table_no=? AND record_type='roadfill'", (cat, table))
+    c.commit()
+    c.close()
+    rebuild_weight(cat, table)
+    return redirect("/admin")
+
+@app.route("/api/data-health")
+def api_data_health():
+    if not (is_admin() or is_agent()):
+        return jsonify({"success":False}), 401
+    c = conn()
+    total = c.execute("SELECT COUNT(*) c FROM game_records").fetchone()["c"]
+    pattern = c.execute("SELECT COUNT(*) c FROM game_records WHERE record_type!='roadfill'").fetchone()["c"]
+    roadfill = c.execute("SELECT COUNT(*) c FROM game_records WHERE record_type='roadfill'").fetchone()["c"]
+    users = c.execute("SELECT COUNT(*) c FROM users").fetchone()["c"]
+    serials_unused = c.execute("SELECT COUNT(*) c FROM serials WHERE status='unused'").fetchone()["c"]
+    c.close()
+    return jsonify({"success":True,"total":total,"pattern":pattern,"roadfill":roadfill,"users":users,"serials_unused":serials_unused})
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT","5000")))
