@@ -1,10 +1,11 @@
+
 from flask import Flask, render_template, request, jsonify, redirect, session
-import sqlite3, os, re
+import sqlite3, os, secrets, string, re
 from datetime import datetime, timedelta
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "baccarat_phase2_secret")
-DB_NAME = os.environ.get("DB_PATH", "baccarat_system.db")
+app.secret_key = os.environ.get("SECRET_KEY", "baccarat_phase3_secret")
+DB = os.environ.get("DB_PATH", "baccarat_system.db")
 
 ADMIN_USER = os.environ.get("ADMIN_USER", "admin")
 ADMIN_PASS = os.environ.get("ADMIN_PASS", "Baccarat2026!")
@@ -15,17 +16,25 @@ MT_TABLES = ["1","2","3","3A","5","6","7","8","9","10","11","12","13","13A","15"
 def now():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-def db():
-    conn = sqlite3.connect(DB_NAME)
-    conn.row_factory = sqlite3.Row
-    return conn
+def today():
+    return datetime.now().strftime("%Y-%m-%d")
+
+def conn():
+    c = sqlite3.connect(DB)
+    c.row_factory = sqlite3.Row
+    return c
+
+def add_col(cur, table, col, sql):
+    cols = [r["name"] for r in cur.execute(f"PRAGMA table_info({table})").fetchall()]
+    if col not in cols:
+        cur.execute(sql)
 
 def init_db():
-    conn = db()
-    cur = conn.cursor()
+    c = conn()
+    cur = c.cursor()
 
     cur.execute("""
-    CREATE TABLE IF NOT EXISTS users (
+    CREATE TABLE IF NOT EXISTS users(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         username TEXT UNIQUE,
         password TEXT,
@@ -33,12 +42,13 @@ def init_db():
         role TEXT DEFAULT 'player',
         status TEXT DEFAULT 'active',
         agent TEXT DEFAULT '',
+        serial_code TEXT DEFAULT '',
         created_at TEXT DEFAULT ''
     )
     """)
 
     cur.execute("""
-    CREATE TABLE IF NOT EXISTS agents (
+    CREATE TABLE IF NOT EXISTS agents(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         username TEXT UNIQUE,
         password TEXT,
@@ -47,7 +57,21 @@ def init_db():
     """)
 
     cur.execute("""
-    CREATE TABLE IF NOT EXISTS game_records (
+    CREATE TABLE IF NOT EXISTS serials(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        code TEXT UNIQUE,
+        days INTEGER DEFAULT 30,
+        role TEXT DEFAULT 'player',
+        agent TEXT DEFAULT '',
+        status TEXT DEFAULT 'unused',
+        used_by TEXT DEFAULT '',
+        used_at TEXT DEFAULT '',
+        created_at TEXT DEFAULT ''
+    )
+    """)
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS game_records(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         category TEXT,
         table_no TEXT,
@@ -58,12 +82,13 @@ def init_db():
         ai_score REAL DEFAULT 0,
         is_correct INTEGER DEFAULT NULL,
         lucky6 INTEGER DEFAULT 0,
+        created_by TEXT DEFAULT '',
         created_at TEXT
     )
     """)
 
     cur.execute("""
-    CREATE TABLE IF NOT EXISTS ai_weights (
+    CREATE TABLE IF NOT EXISTS ai_weights(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         category TEXT,
         table_no TEXT,
@@ -78,7 +103,7 @@ def init_db():
     """)
 
     cur.execute("""
-    CREATE TABLE IF NOT EXISTS bets (
+    CREATE TABLE IF NOT EXISTS bets(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         username TEXT DEFAULT '',
         category TEXT,
@@ -89,334 +114,471 @@ def init_db():
     )
     """)
 
-    cur.execute("SELECT COUNT(*) c FROM users")
-    if cur.fetchone()["c"] == 0:
-        expire = (datetime.now() + timedelta(days=30)).strftime("%Y-%m-%d")
-        cur.execute("INSERT INTO users(username,password,expire_date,role,status,agent,created_at) VALUES(?,?,?,?,?,?,?)",
-                    ("player001","123456",expire,"player","active","agent001",now()))
+    add_col(cur, "users", "serial_code", "ALTER TABLE users ADD COLUMN serial_code TEXT DEFAULT ''")
+    add_col(cur, "game_records", "created_by", "ALTER TABLE game_records ADD COLUMN created_by TEXT DEFAULT ''")
 
-    cur.execute("SELECT COUNT(*) c FROM agents")
-    if cur.fetchone()["c"] == 0:
+    if cur.execute("SELECT COUNT(*) c FROM agents").fetchone()["c"] == 0:
         cur.execute("INSERT INTO agents(username,password,created_at) VALUES(?,?,?)", ("agent001","123456",now()))
 
-    for c, tables in [("DG", DG_TABLES), ("MT", MT_TABLES)]:
-        for t in tables:
-            cur.execute("""INSERT OR IGNORE INTO ai_weights(category,table_no,updated_at)
-                           VALUES(?,?,?)""", (c,t,now()))
+    if cur.execute("SELECT COUNT(*) c FROM users").fetchone()["c"] == 0:
+        exp = (datetime.now()+timedelta(days=30)).strftime("%Y-%m-%d")
+        cur.execute("""
+        INSERT INTO users(username,password,expire_date,role,status,agent,serial_code,created_at)
+        VALUES(?,?,?,?,?,?,?,?)
+        """, ("player001","123456",exp,"player","active","agent001","",now()))
 
-    conn.commit()
-    conn.close()
+    for cat, tables in [("DG",DG_TABLES),("MT",MT_TABLES)]:
+        for t in tables:
+            cur.execute("INSERT OR IGNORE INTO ai_weights(category,table_no,updated_at) VALUES(?,?,?)", (cat,t,now()))
+
+    c.commit()
+    c.close()
 
 init_db()
 
-def admin_required():
+def is_admin():
     return bool(session.get("admin"))
 
-def detect_lucky6(pattern):
+def is_agent():
+    return bool(session.get("agent"))
+
+def player_required():
+    return bool(session.get("user"))
+
+def make_serial():
+    chars = string.ascii_uppercase + string.digits
+    return "BA-" + "-".join("".join(secrets.choice(chars) for _ in range(4)) for _ in range(4))
+
+def lucky6(pattern):
     s = str(pattern or "").lower()
     return 1 if ("幸運6" in s or "幸运6" in s or "lucky6" in s or "lucky 6" in s or re.search(r"(^|[^0-9])6([^0-9]|$)", s)) else 0
 
-def get_weight(conn, category, table_no):
-    row = conn.execute("SELECT * FROM ai_weights WHERE category=? AND table_no=?", (category, table_no)).fetchone()
-    if not row:
-        conn.execute("INSERT OR IGNORE INTO ai_weights(category,table_no,updated_at) VALUES(?,?,?)", (category, table_no, now()))
-        conn.commit()
-        row = conn.execute("SELECT * FROM ai_weights WHERE category=? AND table_no=?", (category, table_no)).fetchone()
-    return row
+def get_weight(c, cat, table):
+    w = c.execute("SELECT * FROM ai_weights WHERE category=? AND table_no=?", (cat,table)).fetchone()
+    if not w:
+        c.execute("INSERT OR IGNORE INTO ai_weights(category,table_no,updated_at) VALUES(?,?,?)", (cat,table,now()))
+        c.commit()
+        w = c.execute("SELECT * FROM ai_weights WHERE category=? AND table_no=?", (cat,table)).fetchone()
+    return w
 
-def get_records(conn, category, table_no):
-    return conn.execute("SELECT * FROM game_records WHERE category=? AND table_no=? ORDER BY id ASC", (category, table_no)).fetchall()
+def table_records(c, cat, table):
+    return c.execute("SELECT * FROM game_records WHERE category=? AND table_no=? ORDER BY id ASC", (cat,table)).fetchall()
 
-def ai_analysis(category, table_no):
-    conn = db()
-    w = get_weight(conn, category, table_no)
-    rows = get_records(conn, category, table_no)
-    conn.close()
+def ai_analysis(cat, table):
+    c = conn()
+    w = get_weight(c, cat, table)
+    rows = table_records(c, cat, table)
+    c.close()
 
     if not rows:
-        return {
-            "suggest":"觀察","confidence":0,"trend":"資料不足",
-            "reason":"目前資料不足，先觀察。",
-            "tie_alert":False,"lucky6_alert":False,
-            "tie_rate":0,"lucky6_rate":0
-        }
+        return {"suggest":"觀察","confidence":0,"trend":"資料不足","reason":"目前資料不足，先觀察。","tie_alert":False,"lucky6_alert":False,"tie_rate":0,"lucky6_rate":0}
 
     recent = rows[-30:]
     total = max(1, len(recent))
-    banker = sum(1 for r in recent if r["result"] == "莊")
-    player = sum(1 for r in recent if r["result"] == "閒")
-    tie = sum(1 for r in recent if r["result"] == "和")
-    lucky = sum(1 for r in recent if r["lucky6"] == 1)
+    b = sum(1 for r in recent if r["result"]=="莊")
+    p = sum(1 for r in recent if r["result"]=="閒")
+    t = sum(1 for r in recent if r["result"]=="和")
+    l = sum(1 for r in recent if r["lucky6"]==1)
 
-    bw, pw, tw, lw = w["banker_weight"], w["player_weight"], w["tie_weight"], w["lucky6_weight"]
-    banker_score = banker / total * 100 * bw
-    player_score = player / total * 100 * pw
+    bs = b/total*100*w["banker_weight"]
+    ps = p/total*100*w["player_weight"]
 
-    # 連續路與跳路微調
     pure = [r["result"] for r in recent if r["result"] in ["莊","閒"]]
     if pure:
         last = pure[-1]
         streak = 1
         for x in reversed(pure[:-1]):
-            if x == last: streak += 1
-            else: break
+            if x == last:
+                streak += 1
+            else:
+                break
         if streak >= 2:
-            if last == "莊": banker_score += min(16, streak * 4)
-            if last == "閒": player_score += min(16, streak * 4)
+            if last == "莊":
+                bs += min(16, streak*4)
+            if last == "閒":
+                ps += min(16, streak*4)
 
-    if banker_score > player_score + 3:
-        suggest = "莊"
-        edge = banker_score - player_score
-    elif player_score > banker_score + 3:
-        suggest = "閒"
-        edge = player_score - banker_score
+    if bs > ps + 3:
+        sug, edge = "莊", bs-ps
+    elif ps > bs + 3:
+        sug, edge = "閒", ps-bs
     else:
-        suggest = "觀察"
-        edge = 0
+        sug, edge = "觀察", 0
 
-    confidence = 0 if suggest == "觀察" else round(min(88, max(52, 45 + edge + min(12, len(rows)/20))), 1)
-    trend = "近期偏莊" if banker > player else "近期偏閒" if player > banker else "莊閒接近"
-
-    tie_rate = round(tie / total * 100, 1)
-    lucky_rate = round(lucky / total * 100, 1)
-    tie_alert = tie_rate >= 14 or sum(1 for r in recent[-10:] if r["result"]=="和") >= 2
-    lucky6_alert = lucky_rate >= 12 or lucky >= 3
+    conf = 0 if sug=="觀察" else round(min(88, max(52, 45+edge+min(12,len(rows)/20))), 1)
+    tie_rate = round(t/total*100, 1)
+    lucky_rate = round(l/total*100, 1)
 
     return {
-        "suggest":suggest,
-        "confidence":confidence,
-        "trend":trend,
-        "reason":f"結合後台共享資料、本桌最近{total}局、莊{banker}、閒{player}、和{tie}、權重莊{bw:.2f}/閒{pw:.2f}/和{tw:.2f}。",
-        "tie_alert":tie_alert,
-        "lucky6_alert":lucky6_alert,
-        "tie_rate":tie_rate,
-        "lucky6_rate":lucky_rate
+        "suggest": sug,
+        "confidence": conf,
+        "trend": "近期偏莊" if b>p else "近期偏閒" if p>b else "莊閒接近",
+        "reason": f"結合共享資料、本桌最近{total}局、莊{b}、閒{p}、和{t}、權重莊{w['banker_weight']:.2f}/閒{w['player_weight']:.2f}/和{w['tie_weight']:.2f}。",
+        "tie_alert": tie_rate >= 14 or sum(1 for r in recent[-10:] if r["result"]=="和") >= 2,
+        "lucky6_alert": lucky_rate >= 12 or l >= 3,
+        "tie_rate": tie_rate,
+        "lucky6_rate": lucky_rate
     }
 
-def update_weight(category, table_no, result, prediction, is_manual, lucky6):
-    conn = db()
-    w = get_weight(conn, category, table_no)
-    bw, pw, tw, lw = w["banker_weight"], w["player_weight"], w["tie_weight"], w["lucky6_weight"]
-    trained = w["trained_count"] or 0
+def update_weight(cat, table, result, pred, manual, l6):
+    c = conn()
+    w = get_weight(c, cat, table)
+    bw,pw,tw,lw = w["banker_weight"],w["player_weight"],w["tie_weight"],w["lucky6_weight"]
+    tr = w["trained_count"] or 0
 
-    if result == "莊":
-        bw += 0.015
-        pw = max(0.7, pw - 0.004)
-    elif result == "閒":
-        pw += 0.015
-        bw = max(0.7, bw - 0.004)
-    elif result == "和":
-        tw += 0.025
+    if result=="莊":
+        bw += .015
+        pw = max(.7, pw-.004)
+    elif result=="閒":
+        pw += .015
+        bw = max(.7, bw-.004)
+    elif result=="和":
+        tw += .025
 
-    if lucky6:
-        lw += 0.03
+    if l6:
+        lw += .03
 
-    if not is_manual and prediction in ["莊","閒","和"]:
-        trained += 1
-        hit = prediction == result
-        if prediction == "莊": bw += 0.03 if hit else -0.02
-        if prediction == "閒": pw += 0.03 if hit else -0.02
-        if prediction == "和": tw += 0.03 if hit else -0.02
+    if not manual and pred in ["莊","閒","和"]:
+        tr += 1
+        hit = pred == result
+        if pred=="莊":
+            bw += .03 if hit else -.02
+        if pred=="閒":
+            pw += .03 if hit else -.02
+        if pred=="和":
+            tw += .03 if hit else -.02
 
-    bw = min(2.2, max(0.65, bw))
-    pw = min(2.2, max(0.65, pw))
-    tw = min(2.2, max(0.65, tw))
-    lw = min(2.5, max(0.7, lw))
+    bw = min(2.3,max(.65,bw))
+    pw = min(2.3,max(.65,pw))
+    tw = min(2.3,max(.65,tw))
+    lw = min(2.3,max(.65,lw))
 
-    conn.execute("""UPDATE ai_weights
-                    SET banker_weight=?, player_weight=?, tie_weight=?, lucky6_weight=?, trained_count=?, updated_at=?
-                    WHERE category=? AND table_no=?""",
-                 (bw,pw,tw,lw,trained,now(),category,table_no))
-    conn.commit()
-    conn.close()
+    c.execute("""
+    UPDATE ai_weights
+    SET banker_weight=?,player_weight=?,tie_weight=?,lucky6_weight=?,trained_count=?,updated_at=?
+    WHERE category=? AND table_no=?
+    """, (bw,pw,tw,lw,tr,now(),cat,table))
+    c.commit()
+    c.close()
 
-def rebuild_weight(category, table_no):
-    conn = db()
-    rows = get_records(conn, category, table_no)
-    bw = pw = tw = lw = 1.0
-    trained = 0
+def rebuild_weight(cat, table):
+    c = conn()
+    c.execute("""
+    UPDATE ai_weights
+    SET banker_weight=1,player_weight=1,tie_weight=1,lucky6_weight=1,trained_count=0,updated_at=?
+    WHERE category=? AND table_no=?
+    """, (now(),cat,table))
+    c.commit()
+    rows = table_records(c, cat, table)
+    c.close()
+
     for r in rows:
-        if r["result"] == "莊":
-            bw += 0.015; pw = max(0.7, pw - 0.004)
-        elif r["result"] == "閒":
-            pw += 0.015; bw = max(0.7, bw - 0.004)
-        elif r["result"] == "和":
-            tw += 0.025
-        if r["lucky6"]:
-            lw += 0.03
-        if not r["is_manual"] and r["prediction"] in ["莊","閒","和"]:
-            trained += 1
-            hit = r["prediction"] == r["result"]
-            if r["prediction"] == "莊": bw += 0.03 if hit else -0.02
-            if r["prediction"] == "閒": pw += 0.03 if hit else -0.02
-            if r["prediction"] == "和": tw += 0.03 if hit else -0.02
-        bw = min(2.2, max(0.65, bw))
-        pw = min(2.2, max(0.65, pw))
-        tw = min(2.2, max(0.65, tw))
-        lw = min(2.5, max(0.7, lw))
-    conn.execute("""UPDATE ai_weights
-                    SET banker_weight=?, player_weight=?, tie_weight=?, lucky6_weight=?, trained_count=?, updated_at=?
-                    WHERE category=? AND table_no=?""",
-                 (bw,pw,tw,lw,trained,now(),category,table_no))
-    conn.commit()
-    conn.close()
+        update_weight(cat, table, r["result"], r["prediction"], r["is_manual"], r["lucky6"])
 
 @app.route("/")
 def index():
-    return render_template("index.html", dg_tables=DG_TABLES, mt_tables=MT_TABLES)
+    if not player_required():
+        return redirect("/login")
+    return render_template("index.html", dg_tables=DG_TABLES, mt_tables=MT_TABLES, user=session.get("user"))
+
+@app.route("/login", methods=["GET","POST"])
+def login():
+    if request.method == "POST":
+        u = request.form.get("username","").strip()
+        p = request.form.get("password","").strip()
+        c = conn()
+        row = c.execute("SELECT * FROM users WHERE username=? AND password=?", (u,p)).fetchone()
+        c.close()
+        if row and row["status"]=="active" and (row["expire_date"] or "") >= today():
+            session.clear()
+            session["user"] = row["username"]
+            session["role"] = row["role"]
+            session["agent_name"] = row["agent"]
+            return redirect("/")
+        return render_template("login.html", error="帳號密碼錯誤，或會員已到期/停用")
+    return render_template("login.html")
+
+@app.route("/activate", methods=["GET","POST"])
+def activate():
+    if request.method == "POST":
+        u = request.form.get("username","").strip()
+        p = request.form.get("password","").strip()
+        code = request.form.get("code","").strip().upper()
+        c = conn()
+        s = c.execute("SELECT * FROM serials WHERE code=? AND status='unused'", (code,)).fetchone()
+        if not s:
+            c.close()
+            return render_template("activate.html", error="序號錯誤或已使用")
+        if c.execute("SELECT id FROM users WHERE username=?", (u,)).fetchone():
+            c.close()
+            return render_template("activate.html", error="帳號已存在")
+        exp = (datetime.now()+timedelta(days=int(s["days"] or 30))).strftime("%Y-%m-%d")
+        c.execute("""
+        INSERT INTO users(username,password,expire_date,role,status,agent,serial_code,created_at)
+        VALUES(?,?,?,?,?,?,?,?)
+        """, (u,p,exp,s["role"],"active",s["agent"],code,now()))
+        c.execute("UPDATE serials SET status='used',used_by=?,used_at=? WHERE code=?", (u,now(),code))
+        c.commit()
+        c.close()
+        return redirect("/login")
+    return render_template("activate.html")
+
+@app.route("/player-logout")
+@app.route("/logout")
+def player_logout():
+    session.clear()
+    return redirect("/login")
 
 @app.route("/admin-login", methods=["GET","POST"])
 def admin_login():
     if request.method == "POST":
-        if request.form.get("username") == ADMIN_USER and request.form.get("password") == ADMIN_PASS:
+        u = request.form.get("username","").strip()
+        p = request.form.get("password","").strip()
+        if u == ADMIN_USER and p == ADMIN_PASS:
+            session.clear()
             session["admin"] = True
             return redirect("/admin")
+
+        c = conn()
+        a = c.execute("SELECT * FROM agents WHERE username=? AND password=?", (u,p)).fetchone()
+        c.close()
+        if a:
+            session.clear()
+            session["agent"] = True
+            session["agent_user"] = a["username"]
+            return redirect("/admin")
+
         return render_template("admin_login.html", error="帳號或密碼錯誤")
     return render_template("admin_login.html")
 
-@app.route("/logout")
 @app.route("/admin-logout")
-def logout():
+def admin_logout():
     session.clear()
     return redirect("/admin-login")
 
 @app.route("/admin")
 def admin():
-    if not admin_required():
+    if not (is_admin() or is_agent()):
         return redirect("/admin-login")
 
-    conn = db()
-    users = conn.execute("SELECT * FROM users ORDER BY id DESC").fetchall()
-    agents = conn.execute("SELECT * FROM agents ORDER BY id DESC").fetchall()
-    weights = conn.execute("SELECT * FROM ai_weights ORDER BY category, table_no").fetchall()
-    records = conn.execute("SELECT * FROM game_records ORDER BY id DESC LIMIT 80").fetchall()
+    c = conn()
+    agent = session.get("agent_user") if is_agent() else None
 
-    total_records = conn.execute("SELECT COUNT(*) c FROM game_records").fetchone()["c"]
-    manual_records = conn.execute("SELECT COUNT(*) c FROM game_records WHERE is_manual=1").fetchone()["c"]
-    predict_count = conn.execute("SELECT COUNT(*) c FROM game_records WHERE prediction IN ('莊','閒','和') AND is_manual=0").fetchone()["c"]
-    correct_count = conn.execute("SELECT COUNT(*) c FROM game_records WHERE is_correct=1").fetchone()["c"]
-    hit_rate = round(correct_count / predict_count * 100, 1) if predict_count else 0
+    if agent:
+        users = c.execute("SELECT * FROM users WHERE agent=? ORDER BY id DESC", (agent,)).fetchall()
+        serials = c.execute("SELECT * FROM serials WHERE agent=? ORDER BY id DESC LIMIT 100", (agent,)).fetchall()
+    else:
+        users = c.execute("SELECT * FROM users ORDER BY id DESC").fetchall()
+        serials = c.execute("SELECT * FROM serials ORDER BY id DESC LIMIT 100").fetchall()
 
-    table_stats = conn.execute("""
-        SELECT category, table_no,
-        COUNT(*) total,
-        SUM(CASE WHEN result='莊' THEN 1 ELSE 0 END) banker,
-        SUM(CASE WHEN result='閒' THEN 1 ELSE 0 END) player,
-        SUM(CASE WHEN result='和' THEN 1 ELSE 0 END) tie_count,
-        SUM(CASE WHEN prediction IN ('莊','閒','和') AND is_manual=0 THEN 1 ELSE 0 END) predicts,
-        SUM(CASE WHEN is_correct=1 THEN 1 ELSE 0 END) corrects
-        FROM game_records
-        GROUP BY category, table_no
-        ORDER BY category, table_no
+    agents = c.execute("SELECT * FROM agents ORDER BY id DESC").fetchall() if is_admin() else []
+    weights = c.execute("SELECT * FROM ai_weights ORDER BY category, table_no").fetchall()
+    records = c.execute("SELECT * FROM game_records ORDER BY id DESC LIMIT 80").fetchall()
+
+    total_records = c.execute("SELECT COUNT(*) c FROM game_records").fetchone()["c"]
+    manual_records = c.execute("SELECT COUNT(*) c FROM game_records WHERE is_manual=1").fetchone()["c"]
+    predict_count = c.execute("SELECT COUNT(*) c FROM game_records WHERE prediction IN ('莊','閒','和') AND is_manual=0").fetchone()["c"]
+    correct_count = c.execute("SELECT COUNT(*) c FROM game_records WHERE is_correct=1").fetchone()["c"]
+    hit_rate = round(correct_count/predict_count*100,1) if predict_count else 0
+
+    table_stats = c.execute("""
+    SELECT category,table_no,COUNT(*) total,
+    SUM(CASE WHEN result='莊' THEN 1 ELSE 0 END) banker,
+    SUM(CASE WHEN result='閒' THEN 1 ELSE 0 END) player,
+    SUM(CASE WHEN result='和' THEN 1 ELSE 0 END) tie_count,
+    SUM(CASE WHEN prediction IN ('莊','閒','和') AND is_manual=0 THEN 1 ELSE 0 END) predicts,
+    SUM(CASE WHEN is_correct=1 THEN 1 ELSE 0 END) corrects
+    FROM game_records
+    GROUP BY category,table_no
+    ORDER BY category,table_no
     """).fetchall()
-    conn.close()
 
-    return render_template("admin.html", users=users, agents=agents, weights=weights, records=records,
-                           total_records=total_records, manual_records=manual_records,
-                           predict_count=predict_count, hit_rate=hit_rate, table_stats=table_stats)
+    c.close()
+
+    return render_template(
+        "admin.html",
+        users=users,
+        agents=agents,
+        serials=serials,
+        weights=weights,
+        records=records,
+        total_records=total_records,
+        manual_records=manual_records,
+        predict_count=predict_count,
+        hit_rate=hit_rate,
+        table_stats=table_stats,
+        is_super=is_admin(),
+        agent_user=session.get("agent_user")
+    )
 
 @app.route("/add-user", methods=["POST"])
 def add_user():
-    if not admin_required(): return redirect("/admin-login")
-    conn = db()
+    if not (is_admin() or is_agent()):
+        return redirect("/admin-login")
+    agent = request.form.get("agent") if is_admin() else session.get("agent_user")
+    c = conn()
     try:
-        conn.execute("""INSERT INTO users(username,password,expire_date,role,status,agent,created_at)
-                        VALUES(?,?,?,?,?,?,?)""",
-                     (request.form.get("username"), request.form.get("password"), request.form.get("expire_date"),
-                      request.form.get("role"), request.form.get("status"), request.form.get("agent"), now()))
-        conn.commit()
+        c.execute("""
+        INSERT INTO users(username,password,expire_date,role,status,agent,serial_code,created_at)
+        VALUES(?,?,?,?,?,?,?,?)
+        """, (
+            request.form.get("username"),
+            request.form.get("password"),
+            request.form.get("expire_date"),
+            request.form.get("role"),
+            request.form.get("status"),
+            agent,
+            "",
+            now()
+        ))
+        c.commit()
     except sqlite3.IntegrityError:
         pass
-    conn.close()
+    c.close()
     return redirect("/admin")
 
 @app.route("/delete-user/<int:user_id>")
 def delete_user(user_id):
-    if not admin_required(): return redirect("/admin-login")
-    conn = db(); conn.execute("DELETE FROM users WHERE id=?", (user_id,)); conn.commit(); conn.close()
+    if not (is_admin() or is_agent()):
+        return redirect("/admin-login")
+    c = conn()
+    if is_agent():
+        c.execute("DELETE FROM users WHERE id=? AND agent=?", (user_id,session.get("agent_user")))
+    else:
+        c.execute("DELETE FROM users WHERE id=?", (user_id,))
+    c.commit()
+    c.close()
     return redirect("/admin")
 
 @app.route("/add-agent", methods=["POST"])
 def add_agent():
-    if not admin_required(): return redirect("/admin-login")
-    conn = db()
+    if not is_admin():
+        return redirect("/admin-login")
+    c = conn()
     try:
-        conn.execute("INSERT INTO agents(username,password,created_at) VALUES(?,?,?)",
-                     (request.form.get("username"), request.form.get("password"), now()))
-        conn.commit()
+        c.execute("INSERT INTO agents(username,password,created_at) VALUES(?,?,?)", (
+            request.form.get("username"),
+            request.form.get("password"),
+            now()
+        ))
+        c.commit()
     except sqlite3.IntegrityError:
         pass
-    conn.close()
+    c.close()
     return redirect("/admin")
 
 @app.route("/delete-agent/<int:agent_id>")
 def delete_agent(agent_id):
-    if not admin_required(): return redirect("/admin-login")
-    conn = db(); conn.execute("DELETE FROM agents WHERE id=?", (agent_id,)); conn.commit(); conn.close()
+    if not is_admin():
+        return redirect("/admin-login")
+    c = conn()
+    c.execute("DELETE FROM agents WHERE id=?", (agent_id,))
+    c.commit()
+    c.close()
+    return redirect("/admin")
+
+@app.route("/create-serial", methods=["POST"])
+def create_serial():
+    if not (is_admin() or is_agent()):
+        return redirect("/admin-login")
+    qty = int(request.form.get("qty") or 1)
+    days = int(request.form.get("days") or 30)
+    role = request.form.get("role") or "player"
+    agent = request.form.get("agent") if is_admin() else session.get("agent_user")
+    c = conn()
+    for _ in range(qty):
+        c.execute("""
+        INSERT INTO serials(code,days,role,agent,status,created_at)
+        VALUES(?,?,?,?,?,?)
+        """, (make_serial(),days,role,agent,"unused",now()))
+    c.commit()
+    c.close()
     return redirect("/admin")
 
 @app.route("/api/table")
 def api_table():
-    category = request.args.get("category","DG")
-    table_no = request.args.get("table_no","RB01")
-    conn = db()
-    rows = conn.execute("SELECT * FROM game_records WHERE category=? AND table_no=? ORDER BY id ASC", (category,table_no)).fetchall()
-    conn.close()
-    return jsonify({"success":True, "records":[dict(r) for r in rows], "ai":ai_analysis(category,table_no)})
+    if not player_required():
+        return jsonify({"success":False,"error":"login required"}), 401
+    cat = request.args.get("category","DG")
+    table = request.args.get("table_no","RB01")
+    c = conn()
+    rows = c.execute("SELECT * FROM game_records WHERE category=? AND table_no=? ORDER BY id ASC", (cat,table)).fetchall()
+    c.close()
+    return jsonify({"success":True,"records":[dict(r) for r in rows],"ai":ai_analysis(cat,table)})
 
 @app.route("/add-record", methods=["POST"])
 def add_record():
-    data = request.json or {}
-    category = data.get("category","DG")
-    table_no = data.get("table_no","RB01")
-    result = data.get("result")
-    pattern = data.get("pattern","")
-    is_manual = 1 if data.get("is_manual",0) else 0
+    if not player_required():
+        return jsonify({"success":False,"error":"login required"}), 401
 
-    ai = ai_analysis(category, table_no)
-    prediction = "" if is_manual else ai["suggest"]
-    ai_score = 0 if is_manual else ai["confidence"]
-    lucky6 = detect_lucky6(pattern)
-    is_correct = None
-    if not is_manual and prediction in ["莊","閒","和"]:
-        is_correct = 1 if prediction == result else 0
+    d = request.json or {}
+    cat = d.get("category","DG")
+    table = d.get("table_no","RB01")
+    result = d.get("result")
+    pattern = d.get("pattern","")
+    manual = 1 if d.get("is_manual",0) else 0
 
-    conn = db()
-    conn.execute("""INSERT INTO game_records(category,table_no,result,pattern,is_manual,prediction,ai_score,is_correct,lucky6,created_at)
-                    VALUES(?,?,?,?,?,?,?,?,?,?)""",
-                 (category,table_no,result,pattern,is_manual,prediction,ai_score,is_correct,lucky6,now()))
-    conn.commit()
-    conn.close()
+    ai = ai_analysis(cat, table)
+    pred = "" if manual else ai["suggest"]
+    score = 0 if manual else ai["confidence"]
+    l6 = lucky6(pattern)
+    correct = None
 
-    update_weight(category, table_no, result, prediction, is_manual, lucky6)
-    return jsonify({"success":True, "ai":ai_analysis(category,table_no)})
+    if not manual and pred in ["莊","閒","和"]:
+        correct = 1 if pred == result else 0
+
+    c = conn()
+    c.execute("""
+    INSERT INTO game_records(category,table_no,result,pattern,is_manual,prediction,ai_score,is_correct,lucky6,created_by,created_at)
+    VALUES(?,?,?,?,?,?,?,?,?,?,?)
+    """, (cat,table,result,pattern,manual,pred,score,correct,l6,session.get("user"),now()))
+    c.commit()
+    c.close()
+
+    update_weight(cat, table, result, pred, manual, l6)
+
+    return jsonify({"success":True,"ai":ai_analysis(cat,table)})
 
 @app.route("/undo-last", methods=["POST"])
 def undo_last():
-    data = request.json or {}
-    category = data.get("category","DG")
-    table_no = data.get("table_no","RB01")
-    conn = db()
-    last = conn.execute("SELECT id FROM game_records WHERE category=? AND table_no=? ORDER BY id DESC LIMIT 1",
-                        (category,table_no)).fetchone()
+    if not player_required():
+        return jsonify({"success":False,"error":"login required"}), 401
+
+    d = request.json or {}
+    cat = d.get("category","DG")
+    table = d.get("table_no","RB01")
+
+    c = conn()
+    last = c.execute("SELECT id FROM game_records WHERE category=? AND table_no=? ORDER BY id DESC LIMIT 1", (cat,table)).fetchone()
     if last:
-        conn.execute("DELETE FROM game_records WHERE id=?", (last["id"],))
-        conn.commit()
-    conn.close()
-    rebuild_weight(category, table_no)
-    return jsonify({"success":True, "ai":ai_analysis(category,table_no)})
+        c.execute("DELETE FROM game_records WHERE id=?", (last["id"],))
+        c.commit()
+    c.close()
+
+    rebuild_weight(cat, table)
+
+    return jsonify({"success":True,"ai":ai_analysis(cat,table)})
 
 @app.route("/add-bet", methods=["POST"])
 def add_bet():
-    data = request.json or {}
-    conn = db()
-    conn.execute("""INSERT INTO bets(username,category,table_no,bet_side,amount,created_at)
-                    VALUES(?,?,?,?,?,?)""",
-                 (session.get("user","guest"), data.get("category"), data.get("table_no"),
-                  data.get("bet_side"), data.get("amount",0), now()))
-    conn.commit(); conn.close()
+    if not player_required():
+        return jsonify({"success":False,"error":"login required"}), 401
+    d = request.json or {}
+    c = conn()
+    c.execute("""
+    INSERT INTO bets(username,category,table_no,bet_side,amount,created_at)
+    VALUES(?,?,?,?,?,?)
+    """, (
+        session.get("user"),
+        d.get("category"),
+        d.get("table_no"),
+        d.get("bet_side"),
+        d.get("amount",0),
+        now()
+    ))
+    c.commit()
+    c.close()
     return jsonify({"success":True})
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT","5000"))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT","5000")))

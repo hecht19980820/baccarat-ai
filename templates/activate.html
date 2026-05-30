@@ -4,20 +4,20 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>會員登入</title>
+<title>序號啟用</title>
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 <main class="login card">
-<h1>會員登入</h1>
+<h1>序號啟用</h1>
 {% if error %}<div class="alert">{{error}}</div>{% endif %}
 <form method="post">
-<input name="username" placeholder="玩家帳號">
-<input name="password" type="password" placeholder="密碼">
-<button>登入</button>
+<input name="username" placeholder="建立玩家帳號">
+<input name="password" type="password" placeholder="建立密碼">
+<input name="code" placeholder="序號">
+<button>啟用</button>
 </form>
-<p class="muted">沒有帳號？ <a href="/activate">使用序號啟用</a></p>
-<p class="muted">測試：player001 / 123456</p>
+<p class="muted"><a href="/login">返回登入</a></p>
 </main>
 </body>
 </html>
