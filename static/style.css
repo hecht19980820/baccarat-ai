@@ -24,3 +24,6 @@ table{width:100%;border-collapse:collapse;min-width:900px}th,td{border-bottom:1p
 .card h3{margin-top:18px;color:#d8e6ff}.box b{word-break:break-word}
 
 .button-link{display:inline-block;background:#4aa3ff;color:#03101f;font-weight:800;padding:6px 10px;border-radius:8px;margin:2px 4px 2px 0}
+
+/* Phase5 */
+.stars{font-size:18px;color:#fbbf24}.card h2{letter-spacing:.2px}

@@ -4,7 +4,7 @@ import sqlite3, os, secrets, string, re, csv, io
 from datetime import datetime, timedelta
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "baccarat_phase4f_secret")
+app.secret_key = os.environ.get("SECRET_KEY", "baccarat_phase5_secret")
 DB = os.environ.get("DB_PATH", "baccarat_system.db")
 ADMIN_USER = os.environ.get("ADMIN_USER", "admin")
 ADMIN_PASS = os.environ.get("ADMIN_PASS", "Baccarat2026!")
@@ -323,7 +323,7 @@ def admin():
     SUM(CASE WHEN is_correct=1 THEN 1 ELSE 0 END) corrects
     FROM game_records GROUP BY category,table_no ORDER BY category,table_no""").fetchall()
     c.close()
-    return render_template("admin.html", users=users, agents=agents, serials=serials, weights=weights, records=records, total_records=total_records, manual_records=manual_records, roadfill_records=roadfill_records, predict_count=predict_count, hit_rate=hit_rate, table_stats=table_stats, best_tables=best_tables(10), dg_rankings=venue_rankings("DG"), mt_rankings=venue_rankings("MT"), abnormal_tables=abnormal_tables(), bet_performance=bet_performance(), recent_100=recent_100_summary(), hit_summary=hit_summary(), agent_ops=agent_ops_summary(), is_super=is_admin(), agent_user=session.get("agent_user"))
+    return render_template("admin.html", users=users, agents=agents, serials=serials, weights=weights, records=records, total_records=total_records, manual_records=manual_records, roadfill_records=roadfill_records, predict_count=predict_count, hit_rate=hit_rate, table_stats=table_stats, best_tables=best_tables(10), dg_rankings=venue_rankings("DG"), mt_rankings=venue_rankings("MT"), abnormal_tables=abnormal_tables(), bet_performance=bet_performance(), recent_100=recent_100_summary(), hit_summary=hit_summary(), agent_ops=agent_ops_summary(), recommended_tables=phase5_recommended_tables(12), phase5_backtest=phase5_backtest(), is_super=is_admin(), agent_user=session.get("agent_user"))
 
 @app.route("/add-user", methods=["POST"])
 def add_user():
@@ -490,7 +490,7 @@ def recent_100_summary():
 
 
 def agent_ops_summary():
-    """Phase4-F：代理營運中心統計。"""
+    """Phase5：代理營運中心統計。"""
     c = conn()
     today_prefix = datetime.now().strftime("%Y-%m-%d")
     soon_date = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
@@ -566,6 +566,56 @@ def void_serial(serial_id):
     c.commit()
     c.close()
     return redirect("/admin")
+
+
+def phase5_recommended_tables(limit=12):
+    """Phase5 AI推薦桌：依AI信心、命中率、資料量與風險排序。"""
+    out = []
+    for cat, tables in [("DG", DG_TABLES), ("MT", MT_TABLES)]:
+        for t in tables:
+            ai = ai_analysis(cat, t)
+            c = conn()
+            stat = c.execute("""SELECT
+                COUNT(*) total,
+                SUM(CASE WHEN prediction IN ('莊','閒','和') AND record_type!='roadfill' THEN 1 ELSE 0 END) predicts,
+                SUM(CASE WHEN is_correct=1 THEN 1 ELSE 0 END) corrects
+                FROM game_records WHERE category=? AND table_no=?""", (cat, t)).fetchone()
+            c.close()
+            predicts = stat["predicts"] or 0
+            corrects = stat["corrects"] or 0
+            hit = round(corrects / predicts * 100, 1) if predicts else 0
+            risk = ai.get("risk", "高")
+            penalty = 0 if risk == "低" else 5 if risk == "中" else 12
+            score = round(ai.get("confidence", 0) * 0.55 + hit * 0.35 + min(stat["total"] or 0, 100) * 0.10 - penalty, 1)
+            stars = "★★★★★" if score >= 75 else "★★★★☆" if score >= 65 else "★★★☆☆" if score >= 55 else "★★☆☆☆"
+            out.append({
+                "category": cat,
+                "table_no": t,
+                "suggest": ai.get("suggest","觀察"),
+                "confidence": ai.get("confidence",0),
+                "hit_rate": hit,
+                "score": score,
+                "stars": stars,
+                "risk": risk,
+                "tie_rate": ai.get("tie_rate",0),
+                "lucky6_rate": ai.get("lucky6_rate",0),
+                "total": stat["total"] or 0
+            })
+    return sorted(out, key=lambda x: x["score"], reverse=True)[:limit]
+
+def phase5_backtest():
+    """Phase5回測：最近100/500/1000局AI命中率。"""
+    c = conn()
+    result = {}
+    for name, limit in [("last100", 100), ("last500", 500), ("last1000", 1000)]:
+        rows = c.execute("""SELECT * FROM game_records
+            WHERE prediction IN ('莊','閒','和') AND record_type!='roadfill'
+            ORDER BY id DESC LIMIT ?""", (limit,)).fetchall()
+        total = len(rows)
+        correct = sum(1 for r in rows if r["is_correct"] == 1)
+        result[name] = {"total": total, "correct": correct, "rate": round(correct / total * 100, 1) if total else 0}
+    c.close()
+    return result
 
 @app.route("/export-records")
 def export_records():
